@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  # Backend API
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: readandlearn-backend
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - CLAUDE_API_KEY=${CLAUDE_API_KEY}
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=readandlearn
+      - DB_USER=readandlearn
+      - DB_PASSWORD=dev_password_123
+      - ENABLE_CACHING=${ENABLE_CACHING:-true}
+      - ENABLE_ANALYTICS=${ENABLE_ANALYTICS:-true}
+      - MAX_TEXT_WORDS=${MAX_TEXT_WORDS:-800}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # PostgreSQL Database with pgvector
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: readandlearn-postgres
+    environment:
+      POSTGRES_USER: readandlearn
+      POSTGRES_PASSWORD: dev_password_123
+      POSTGRES_DB: readandlearn
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/01-init.sql
+      - ./dictionary_migration.sql:/docker-entrypoint-initdb.d/02-dictionary.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U readandlearn"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
