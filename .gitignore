@@ -84,7 +84,7 @@ extension/*.xpi
 # Serena MCP
 .serena/
 
-# Claude Code
+# Development tools
 .claude/
 
 # Sensitive / Personal data

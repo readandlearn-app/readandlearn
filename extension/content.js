@@ -4,6 +4,14 @@
   console.log('🚀 Read & Learn v2.0 starting...');
   console.log('Page URL:', window.location.href);
 
+  // Check if this is the demo page - skip if it is
+  if (window.READANDLEARN_DEMO_PAGE === true ||
+      document.documentElement.getAttribute('data-readandlearn-demo') === 'true' ||
+      document.querySelector('meta[name="readandlearn-demo"]')) {
+    console.log('⚠️ Read & Learn demo page detected - extension disabled to avoid conflicts');
+    return;
+  }
+
   // Only run on HTML pages
   const url = window.location.href.toLowerCase();
   const isNonHtmlFile = url.endsWith('.svg') || url.endsWith('.pdf') ||

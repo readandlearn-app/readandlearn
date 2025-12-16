@@ -76,12 +76,12 @@ if (Test-Path ".env") {
     Write-Host "✓ Created .env file" -ForegroundColor Green
 }
 
-# Prompt for Claude API key
+# Prompt for AI API key
 Write-Host ""
-Write-Host "🔑 Claude API Key Setup" -ForegroundColor Cyan
-Write-Host "Get your API key from: https://console.anthropic.com/" -ForegroundColor White
+Write-Host "🔑 AI API Key Setup" -ForegroundColor Cyan
+Write-Host "Get your API key from your AI provider" -ForegroundColor White
 Write-Host ""
-$claudeKey = Read-Host "Enter your Claude API key (or press Enter to skip)"
+$claudeKey = Read-Host "Enter your AI API key (or press Enter to skip)"
 
 if ($claudeKey) {
     # Update .env file with the API key

@@ -246,8 +246,8 @@ app.post('/analyze', async (req, res) => {
       }
     }
 
-    // Tier 3: Call Claude API (full analysis)
-    console.log('🤖 Calling Claude API for full analysis...');
+    // Tier 3: Call AI API (full analysis)
+    console.log('🤖 Calling AI API for full analysis...');
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -273,7 +273,7 @@ Return JSON only:
 
     if (!response.ok) {
       const error = await response.text();
-      console.error('❌ Claude API error:', error);
+      console.error('❌ AI API error:', error);
       await logUsage('analyze', 'fr', false, 0, 0);
       return res.status(500).json({ error: 'Analysis service error' });
     }
@@ -386,7 +386,7 @@ async function lookupDictionary(word, language = 'fr') {
       };
     }
 
-    // Check learned dictionary second (Claude-learned words)
+    // Check learned dictionary second (AI-learned words)
     const learnedResult = await pool.query(
       'SELECT * FROM learned_dictionary WHERE LOWER(word) = LOWER($1) LIMIT 1',
       [word.trim()]
@@ -406,7 +406,7 @@ async function lookupDictionary(word, language = 'fr') {
       };
     }
 
-    console.log(`❌ Dictionary MISS: "${word}" (will call Claude)`);
+    console.log(`❌ Dictionary MISS: "${word}" (will call AI)`);
     return null;
   } catch (error) {
     console.error('❌ Dictionary error:', error.message);
@@ -415,10 +415,10 @@ async function lookupDictionary(word, language = 'fr') {
 }
 
 // ========================================
-// HELPER: Claude AI Definition (Contextual)
+// HELPER: AI Definition (Contextual)
 // ========================================
 async function getClaudeDefinition(word, context = '', language = 'fr') {
-  console.log('🤖 Calling Claude for contextual definition...');
+  console.log('🤖 Calling AI for contextual definition...');
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -439,7 +439,7 @@ async function getClaudeDefinition(word, context = '', language = 'fr') {
   });
 
   if (!response.ok) {
-    throw new Error('Claude API error');
+    throw new Error('AI API error');
   }
 
   const data = await response.json();
@@ -449,7 +449,7 @@ async function getClaudeDefinition(word, context = '', language = 'fr') {
   const outputTokens = data.usage.output_tokens;
   const cost = (inputTokens * 0.80 + outputTokens * 4.00) / 1000000;
 
-  console.log(`💰 Claude call: ${inputTokens + outputTokens} tokens = $${cost.toFixed(6)}`);
+  console.log(`💰 AI call: ${inputTokens + outputTokens} tokens = $${cost.toFixed(6)}`);
 
   const jsonMatch = content.match(/```json\n?([\s\S]*?)\n?```/) || content.match(/\{[\s\S]*\}/);
   const jsonText = jsonMatch ? (jsonMatch[1] || jsonMatch[0]) : content;
@@ -512,7 +512,7 @@ app.post('/define', async (req, res) => {
       }
     }
 
-    // Step 3: Fall back to Claude AI if:
+    // Step 3: Fall back to AI if:
     // - Dictionary failed
     // - Context provided (needs contextual understanding)
     // - forceAI flag set
@@ -522,7 +522,7 @@ app.post('/define', async (req, res) => {
       tokens = claudeResult.tokens;
       cost = claudeResult.cost;
 
-      // 🌱 Auto-populate learned_dictionary with Claude's definition
+      // 🌱 Auto-populate learned_dictionary with AI's definition
       if (language === 'fr' && result.definition && result.translation) {
         try {
           await pool.query(
@@ -532,7 +532,7 @@ app.post('/define', async (req, res) => {
                learn_count = learned_dictionary.learn_count + 1`,
             [word.toLowerCase(), result.translation, result.type || 'unknown', result.definition]
           );
-          console.log(`🌱 Added "${word}" to learned dictionary (from Claude)`);
+          console.log(`🌱 Added "${word}" to learned dictionary (from AI)`);
         } catch (err) {
           console.error('Learned dictionary auto-add failed:', err.message);
         }
@@ -896,13 +896,13 @@ app.post('/questions/generate', async (req, res) => {
       });
     }
 
-    console.log('❌ CACHE MISS - Generating new questions with Claude...');
+    console.log('❌ CACHE MISS - Generating new questions with AI...');
 
     // Sample text if too long
     const { text: sampledText, sampled } = smartSample(text, 1000);
     console.log(`📄 Text: ${text.split(/\s+/).length} words → ${sampledText.split(/\s+/).length} words (sampled: ${sampled})`);
 
-    // Call Claude to generate questions
+    // Call AI to generate questions
     const prompt = `Tu es un expert en création de questions de compréhension pour les examens ${examType} niveau ${level}.
 
 Génère exactement 10 questions de compréhension basées sur ce texte français. Les questions doivent être variées et inclure différents types:
@@ -973,8 +973,8 @@ Format JSON requis:
 
     if (!response.ok) {
       const errorData = await response.json();
-      console.error('Claude API error details:', JSON.stringify(errorData, null, 2));
-      throw new Error(`Claude API error: ${response.statusText} - ${JSON.stringify(errorData)}`);
+      console.error('AI API error details:', JSON.stringify(errorData, null, 2));
+      throw new Error(`AI API error: ${response.statusText} - ${JSON.stringify(errorData)}`);
     }
 
     const data = await response.json();
@@ -990,7 +990,7 @@ Format JSON requis:
       if (jsonMatch) {
         questionsData = JSON.parse(jsonMatch[1]);
       } else {
-        throw new Error('Failed to parse questions JSON from Claude response');
+        throw new Error('Failed to parse questions JSON from AI response');
       }
     }
 

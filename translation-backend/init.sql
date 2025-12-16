@@ -90,7 +90,7 @@ CREATE TABLE vocabulary_cache (
 
 CREATE INDEX idx_vocab_word_lang ON vocabulary_cache(word, language);
 
--- Learned dictionary (Claude AI learned words)
+-- Learned dictionary (AI-learned words)
 CREATE TABLE learned_dictionary (
   id SERIAL PRIMARY KEY,
   word VARCHAR(255) NOT NULL,
@@ -104,7 +104,7 @@ CREATE TABLE learned_dictionary (
 
 CREATE INDEX idx_learned_word ON learned_dictionary(word);
 
-COMMENT ON TABLE learned_dictionary IS 'Words learned from Claude AI that were not in the frequency list';
+COMMENT ON TABLE learned_dictionary IS 'Words learned from AI that were not in the frequency list';
 
 -- Article Embeddings table for semantic similarity
 CREATE TABLE article_embeddings (

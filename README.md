@@ -36,7 +36,7 @@ The installer will:
 
 **Prerequisites:**
 - Docker & Docker Compose
-- Claude API key ([get one here](https://console.anthropic.com/))
+- AI API key from your provider
 
 **Steps:**
 
@@ -50,7 +50,7 @@ cd readandlearn
 ```bash
 cd translation-backend
 cp .env.example .env
-# Edit .env and add your Claude API key
+# Edit .env and add your AI API key
 ```
 
 3. **Start services**
@@ -84,14 +84,14 @@ curl http://localhost:3000/health
 
 ```
 Chrome Extension → Backend API (Node.js/Express)
-                   ├─ Claude AI (CEFR analysis, definitions)
+                   ├─ AI API (CEFR analysis, definitions)
                    ├─ PostgreSQL (caching, vocabulary storage)
                    └─ Local Embeddings (similarity matching)
 ```
 
 ## Cost Estimate
 
-Using Claude Haiku 4.5 with smart caching:
+With smart caching enabled:
 - ~$0.004 per article analysis (with 80%+ cache hit rate)
 - ~$0.0001 per word definition
 - 100 articles/month ≈ $12/month for heavy users
@@ -172,7 +172,6 @@ AGPL-3.0 - see [LICENSE](LICENSE) file for details.
 
 ## Acknowledgments
 
-- [Claude AI](https://www.anthropic.com/) for language analysis
 - [Xenova Transformers](https://github.com/xenova/transformers.js) for local embeddings
 - Built with Express, PostgreSQL, and love for language learning
 

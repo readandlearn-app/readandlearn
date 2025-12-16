@@ -66,12 +66,12 @@ else
     echo -e "${GREEN}✓ Created .env file${NC}"
 fi
 
-# Prompt for Claude API key
+# Prompt for AI API key
 echo ""
-echo "🔑 Claude API Key Setup"
-echo "Get your API key from: https://console.anthropic.com/"
+echo "🔑 AI API Key Setup"
+echo "Get your API key from your AI provider"
 echo ""
-read -p "Enter your Claude API key (or press Enter to skip): " CLAUDE_KEY
+read -p "Enter your AI API key (or press Enter to skip): " CLAUDE_KEY
 
 if [ ! -z "$CLAUDE_KEY" ]; then
     # Update .env file with the API key
