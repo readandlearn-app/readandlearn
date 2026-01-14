@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const rateLimit = require('express-rate-limit');
 const crypto = require('crypto');
 const { Pool } = require('pg');
 
@@ -93,6 +94,31 @@ app.use((req, res, next) => {
 
   next();
 });
+
+// ========================================
+// RATE LIMITING
+// ========================================
+
+// Rate limiter configuration via environment variables
+const RATE_LIMIT_WINDOW_MS = parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 60000; // Default: 1 minute
+const RATE_LIMIT_MAX_REQUESTS = parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 30; // Default: 30 requests per window
+
+const limiter = rateLimit({
+  windowMs: RATE_LIMIT_WINDOW_MS,
+  max: RATE_LIMIT_MAX_REQUESTS,
+  standardHeaders: true,
+  legacyHeaders: false,
+  // Skip rate limiting for /health endpoint (monitoring needs)
+  skip: (req) => req.path === '/health',
+  message: {
+    error: 'Too Many Requests',
+    message: `Rate limit exceeded. Please wait ${Math.ceil(RATE_LIMIT_WINDOW_MS / 1000)} seconds before making more requests.`,
+    retryAfter: Math.ceil(RATE_LIMIT_WINDOW_MS / 1000)
+  }
+});
+
+// Apply rate limiting to all routes except /health
+app.use(limiter);
 
 app.use(express.json({ limit: '10mb' }));
 
@@ -1393,5 +1419,6 @@ app.listen(PORT, () => {
   console.log(`📊 Analytics: ${process.env.ENABLE_ANALYTICS === 'true' ? 'ENABLED' : 'DISABLED'}`);
   console.log(`📝 Max text: ${process.env.MAX_TEXT_WORDS || 800} words`);
   console.log(`🔒 CORS: ${ALLOWED_ORIGINS.join(', ')}`);
+  console.log(`🚦 Rate limit: ${RATE_LIMIT_MAX_REQUESTS} requests per ${RATE_LIMIT_WINDOW_MS / 1000}s`);
   console.log('========================================\n');
 });
