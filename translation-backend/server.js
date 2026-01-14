@@ -114,6 +114,95 @@ pool.query('SELECT NOW()', (err, res) => {
   }
 });
 
+// ========================================
+// API KEY VALIDATION
+// ========================================
+
+// Flag to track API key validity (set at startup)
+let apiKeyValid = false;
+
+/**
+ * Validate Claude API key by making a minimal API call
+ * Uses max_tokens: 1 to minimize cost (~$0.000001)
+ */
+async function validateApiKey() {
+  const apiKey = process.env.CLAUDE_API_KEY;
+
+  if (!apiKey || apiKey === 'your-ai-api-key-here') {
+    console.error('❌ CLAUDE_API_KEY not configured');
+    console.error('   Get your key from: https://console.anthropic.com/');
+    return false;
+  }
+
+  try {
+    console.log('🔑 Validating Claude API key...');
+
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1,
+        messages: [{
+          role: 'user',
+          content: 'Hi'
+        }]
+      })
+    });
+
+    if (response.ok) {
+      console.log('✅ Claude API key validated successfully');
+      return true;
+    }
+
+    const errorData = await response.json().catch(() => ({}));
+    const errorMessage = errorData.error?.message || response.statusText;
+
+    if (response.status === 401) {
+      console.error('❌ Invalid CLAUDE_API_KEY: Authentication failed');
+      console.error('   Get your key from: https://console.anthropic.com/');
+    } else if (response.status === 403) {
+      console.error('❌ CLAUDE_API_KEY lacks required permissions');
+      console.error('   Error:', errorMessage);
+    } else {
+      console.error(`❌ API key validation failed (${response.status}):`, errorMessage);
+    }
+
+    return false;
+  } catch (error) {
+    console.error('❌ API key validation error:', error.message);
+    console.error('   This may be a network issue. Server will continue but Claude API calls may fail.');
+    return false;
+  }
+}
+
+// Validate API key at startup (async, non-blocking)
+validateApiKey().then(valid => {
+  apiKeyValid = valid;
+  if (!valid) {
+    console.warn('⚠️  Server running with invalid/missing API key');
+    console.warn('   Claude-dependent endpoints will return 503');
+  }
+});
+
+/**
+ * Middleware to check API key validity before Claude-dependent endpoints
+ */
+function requireValidApiKey(req, res, next) {
+  if (!apiKeyValid) {
+    return res.status(503).json({
+      error: 'Service Unavailable',
+      message: 'Claude API key is not configured or invalid. Please check server configuration.',
+      hint: 'Set CLAUDE_API_KEY in your environment. Get your key from https://console.anthropic.com/'
+    });
+  }
+  next();
+}
+
 // Utility: Calculate SHA-256 hash (secure hashing)
 // Note: Upgraded from MD5 to SHA-256 to prevent collision attacks
 function calculateHash(text) {
@@ -240,12 +329,14 @@ app.get('/health', async (req, res) => {
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
       apiKeyConfigured: !!process.env.CLAUDE_API_KEY,
+      apiKeyValid: apiKeyValid,
       database: 'connected',
       caching: process.env.ENABLE_CACHING === 'true'
     });
   } catch (err) {
     res.status(500).json({
       status: 'error',
+      apiKeyValid: apiKeyValid,
       database: 'disconnected',
       error: err.message
     });
@@ -255,7 +346,7 @@ app.get('/health', async (req, res) => {
 // ========================================
 // ENDPOINT: CEFR Analysis (Optimized)
 // ========================================
-app.post('/analyze', async (req, res) => {
+app.post('/analyze', requireValidApiKey, async (req, res) => {
   try {
     console.log('\n========================================');
     console.log('📥 POST /analyze');
@@ -562,7 +653,7 @@ async function getClaudeDefinition(word, context = '', language = 'fr') {
 // ========================================
 // ENDPOINT: Define Word (Dictionary-First Routing)
 // ========================================
-app.post('/define', async (req, res) => {
+app.post('/define', requireValidApiKey, async (req, res) => {
   try {
     const { word, context = '', language = 'fr', targetLanguage = 'en', forceAI = false } = req.body;
 
@@ -670,7 +761,7 @@ app.post('/define', async (req, res) => {
 // ========================================
 // ENDPOINT: Batch Define (Optimized)
 // ========================================
-app.post('/define-batch', async (req, res) => {
+app.post('/define-batch', requireValidApiKey, async (req, res) => {
   try {
     const { words, language = 'fr' } = req.body;
 
@@ -947,7 +1038,7 @@ app.get('/deck/:userId/export', async (req, res) => {
 // ========================================
 // ENDPOINT: Generate Comprehension Questions
 // ========================================
-app.post('/questions/generate', async (req, res) => {
+app.post('/questions/generate', requireValidApiKey, async (req, res) => {
   const { text, url, level, examType } = req.body;
 
   if (!text || !url || !level || !examType) {
