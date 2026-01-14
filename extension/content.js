@@ -33,6 +33,42 @@
 
   const BACKEND_URL = 'http://localhost:3000';
 
+  // Helper function to make API requests via background script (bypasses Private Network Access)
+  async function apiFetch(endpoint, options = {}) {
+    return new Promise((resolve, reject) => {
+      const url = `${BACKEND_URL}${endpoint}`;
+
+      chrome.runtime.sendMessage({
+        type: 'API_REQUEST',
+        url: url,
+        options: options,
+        expectJson: true
+      }, response => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
+        }
+
+        if (!response.ok) {
+          // Create a response-like object for consistency
+          resolve({
+            ok: false,
+            status: response.status,
+            json: async () => response.data,
+            text: async () => JSON.stringify(response.data)
+          });
+        } else {
+          resolve({
+            ok: true,
+            status: response.status,
+            json: async () => response.data,
+            text: async () => JSON.stringify(response.data)
+          });
+        }
+      });
+    });
+  }
+
   // Generate unique user ID (browser fingerprint)
   const USER_ID = localStorage.getItem('readandlearn_user_id') ||
                   (() => {
@@ -621,7 +657,7 @@
 
       showBanner('🔄 Analyzing French level... (this may take 5-10 seconds)', 'loading');
 
-      const response = await fetch(`${BACKEND_URL}/analyze`, {
+      const response = await apiFetch('/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -815,7 +851,7 @@
         const range = selection.getRangeAt(0);
         const sentence = range.startContainer.parentElement?.innerText || '';
 
-        const response = await fetch(`${BACKEND_URL}/define`, {
+        const response = await apiFetch('/define', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -874,7 +910,7 @@
 
       // Get definition from backend if not already fetched
       if (!definition) {
-        const defResponse = await fetch(`${BACKEND_URL}/define`, {
+        const defResponse = await apiFetch('/define', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -892,7 +928,7 @@
       }
 
       // Add to deck
-      const addResponse = await fetch(`${BACKEND_URL}/deck/add`, {
+      const addResponse = await apiFetch('/deck/add', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -935,7 +971,7 @@
     try {
       showBanner('🔄 Loading deck...', 'loading');
 
-      const response = await fetch(`${BACKEND_URL}/deck/${USER_ID}`);
+      const response = await apiFetch(`/deck/${USER_ID}`);
       if (!response.ok) {
         throw new Error('Failed to load deck');
       }
@@ -1094,7 +1130,7 @@
 
   async function deleteCard(cardId) {
     try {
-      const response = await fetch(`${BACKEND_URL}/deck/${cardId}`, {
+      const response = await apiFetch(`/deck/${cardId}`, {
         method: 'DELETE'
       });
 
@@ -1118,7 +1154,7 @@
     try {
       showBanner(`🔄 Exporting as ${format.toUpperCase()}...`, 'loading');
 
-      const response = await fetch(`${BACKEND_URL}/deck/${USER_ID}/export?format=${format}`);
+      const response = await apiFetch(`/deck/${USER_ID}/export?format=${format}`);
       if (!response.ok) {
         throw new Error('Export failed');
       }
@@ -1169,7 +1205,7 @@
 
       const text = articleElement.innerText;
 
-      const response = await fetch(`${BACKEND_URL}/questions/generate`, {
+      const response = await apiFetch('/questions/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1530,7 +1566,7 @@
 
   async function addQuestionsToDeck(userScore) {
     try {
-      await fetch(`${BACKEND_URL}/questions/deck/add`, {
+      await apiFetch('/questions/deck/add', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1555,7 +1591,7 @@
     try {
       showBanner('🔄 Exporting questions...', 'loading');
 
-      const response = await fetch(`${BACKEND_URL}/questions/deck/${USER_ID}/export?format=anki`);
+      const response = await apiFetch(`/questions/deck/${USER_ID}/export?format=anki`);
       if (!response.ok) {
         throw new Error('Export failed');
       }
