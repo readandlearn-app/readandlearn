@@ -420,13 +420,18 @@
     const vocab = currentAnalysis.vocabulary_examples || [];
     const grammar = currentAnalysis.grammar_features || [];
 
+    // Sanitize API response data to prevent XSS
+    const safeCefrLevel = sanitizeForDisplay(currentAnalysis.cefr_level);
+    const safeConfidence = sanitizeForDisplay(currentAnalysis.confidence);
+    const safeReasoning = sanitizeForDisplay(currentAnalysis.reasoning);
+
     return `
       <div style="margin-bottom: 24px;">
         <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
-          <div style="font-size: 36px; font-weight: 900; color: ${getCefrColor(currentAnalysis.cefr_level)};">${currentAnalysis.cefr_level}</div>
+          <div style="font-size: 36px; font-weight: 900; color: ${getCefrColor(currentAnalysis.cefr_level)};">${safeCefrLevel}</div>
           <div>
             <div style="font-size: 11px; text-transform: uppercase; color: #888; letter-spacing: 1px;">CEFR Level</div>
-            <div style="font-size: 13px; color: #666;">${currentAnalysis.confidence} confidence</div>
+            <div style="font-size: 13px; color: #666;">${safeConfidence} confidence</div>
           </div>
         </div>
         ${currentAnalysis.cached ? '<div style="font-size: 12px; color: #4CAF50; margin-top: 8px;">💾 Loaded from cache (FREE!)</div>' : ''}
@@ -434,20 +439,20 @@
 
       <div style="background: #f5f5f5; padding: 16px; border-radius: 8px; margin-bottom: 20px;">
         <div style="font-size: 14px; font-weight: 600; color: #333; margin-bottom: 8px;">💡 Reasoning</div>
-        <div style="font-size: 13px; color: #666; line-height: 1.6;">${currentAnalysis.reasoning}</div>
+        <div style="font-size: 13px; color: #666; line-height: 1.6;">${safeReasoning}</div>
       </div>
 
       <div style="margin-bottom: 20px;">
         <div style="font-size: 14px; font-weight: 600; color: #333; margin-bottom: 8px;">📚 Key Vocabulary (${vocab.length})</div>
         <div style="display: flex; flex-wrap: wrap; gap: 6px;">
-          ${vocab.map(word => `<span style="background: #e8eaf6; color: #3f51b5; padding: 6px 12px; border-radius: 16px; font-size: 12px;">${word}</span>`).join('')}
+          ${vocab.map(word => `<span style="background: #e8eaf6; color: #3f51b5; padding: 6px 12px; border-radius: 16px; font-size: 12px;">${sanitizeForDisplay(word)}</span>`).join('')}
         </div>
       </div>
 
       <div style="margin-bottom: 24px;">
         <div style="font-size: 14px; font-weight: 600; color: #333; margin-bottom: 8px;">🎯 Grammar Features (${grammar.length})</div>
         <div style="display: flex; flex-wrap: wrap; gap: 6px;">
-          ${grammar.map(feature => `<span style="background: #fff3e0; color: #f57c00; padding: 6px 12px; border-radius: 16px; font-size: 12px;">${feature}</span>`).join('')}
+          ${grammar.map(feature => `<span style="background: #fff3e0; color: #f57c00; padding: 6px 12px; border-radius: 16px; font-size: 12px;">${sanitizeForDisplay(feature)}</span>`).join('')}
         </div>
       </div>
 
@@ -794,44 +799,69 @@
       max-width: 300px;
     `;
 
-    popup.innerHTML = `
-      <div style="font-size: 14px; font-weight: 600; margin-bottom: 8px; color: #333;">"${text.substring(0, 30)}${text.length > 30 ? '...' : ''}"</div>
-      <div id="rl-popup-meaning" style="display: none; background: #f5f5f5; padding: 8px; border-radius: 6px; margin-bottom: 8px; font-size: 12px; color: #333;"></div>
-      <button id="rl-get-meaning-btn" style="
-        width: 100%;
-        background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
-        color: white;
-        border: none;
-        padding: 8px 16px;
-        border-radius: 6px;
-        font-size: 13px;
-        font-weight: 600;
-        cursor: pointer;
-        margin-bottom: 6px;
-      ">🔍 Get Meaning</button>
-      <button id="rl-add-to-deck-popup-btn" style="
-        width: 100%;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        border: none;
-        padding: 8px 16px;
-        border-radius: 6px;
-        font-size: 13px;
-        font-weight: 600;
-        cursor: pointer;
-        margin-bottom: 6px;
-      ">+ Add to Deck</button>
-      <button id="rl-cancel-popup-btn" style="
-        width: 100%;
-        background: #f5f5f5;
-        color: #666;
-        border: none;
-        padding: 8px 16px;
-        border-radius: 6px;
-        font-size: 13px;
-        cursor: pointer;
-      ">Cancel</button>
+    // Sanitize user-selected text to prevent XSS
+    const displayText = sanitizeForDisplay(text.substring(0, 30)) + (text.length > 30 ? '...' : '');
+
+    // Build popup using safe DOM methods for dynamic content
+    const titleDiv = document.createElement('div');
+    titleDiv.style.cssText = 'font-size: 14px; font-weight: 600; margin-bottom: 8px; color: #333;';
+    titleDiv.textContent = `"${text.substring(0, 30)}${text.length > 30 ? '...' : ''}"`;
+
+    const meaningDiv = document.createElement('div');
+    meaningDiv.id = 'rl-popup-meaning';
+    meaningDiv.style.cssText = 'display: none; background: #f5f5f5; padding: 8px; border-radius: 6px; margin-bottom: 8px; font-size: 12px; color: #333;';
+
+    const getMeaningBtn = document.createElement('button');
+    getMeaningBtn.id = 'rl-get-meaning-btn';
+    getMeaningBtn.style.cssText = `
+      width: 100%;
+      background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-bottom: 6px;
     `;
+    getMeaningBtn.textContent = '🔍 Get Meaning';
+
+    const addToDeckBtn = document.createElement('button');
+    addToDeckBtn.id = 'rl-add-to-deck-popup-btn';
+    addToDeckBtn.style.cssText = `
+      width: 100%;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-bottom: 6px;
+    `;
+    addToDeckBtn.textContent = '+ Add to Deck';
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.id = 'rl-cancel-popup-btn';
+    cancelBtn.style.cssText = `
+      width: 100%;
+      background: #f5f5f5;
+      color: #666;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-size: 13px;
+      cursor: pointer;
+    `;
+    cancelBtn.textContent = 'Cancel';
+
+    popup.appendChild(titleDiv);
+    popup.appendChild(meaningDiv);
+    popup.appendChild(getMeaningBtn);
+    popup.appendChild(addToDeckBtn);
+    popup.appendChild(cancelBtn);
 
     document.body.appendChild(popup);
 
@@ -841,7 +871,7 @@
       const meaningBtn = document.getElementById('rl-get-meaning-btn');
       const meaningDiv = document.getElementById('rl-popup-meaning');
 
-      meaningBtn.innerHTML = '🔄 Loading...';
+      meaningBtn.textContent = '🔄 Loading...';
       meaningBtn.disabled = true;
 
       try {
@@ -866,7 +896,15 @@
 
         console.log('📥 Received definition result:', { word: text, cached: result.cached, translation: result.translation });
 
-        meaningDiv.innerHTML = `<strong>${result.translation}</strong><br/><small>${result.definition}</small>`;
+        // Safely display API response - sanitize to prevent XSS
+        meaningDiv.textContent = ''; // Clear previous content
+        const translationEl = document.createElement('strong');
+        translationEl.textContent = result.translation || '';
+        const definitionEl = document.createElement('small');
+        definitionEl.textContent = result.definition || '';
+        meaningDiv.appendChild(translationEl);
+        meaningDiv.appendChild(document.createElement('br'));
+        meaningDiv.appendChild(definitionEl);
         meaningDiv.style.display = 'block';
         meaningBtn.style.display = 'none';
 
@@ -875,9 +913,14 @@
         createPersistentTooltip(text, result.translation);
 
       } catch (error) {
-        meaningDiv.innerHTML = `<span style="color: #f44336;">Error: ${error.message}</span>`;
+        // Safely display error - sanitize error message to prevent XSS
+        meaningDiv.textContent = ''; // Clear previous content
+        const errorSpan = document.createElement('span');
+        errorSpan.style.color = '#f44336';
+        errorSpan.textContent = `Error: ${error.message || 'Unknown error'}`;
+        meaningDiv.appendChild(errorSpan);
         meaningDiv.style.display = 'block';
-        meaningBtn.innerHTML = '🔍 Get Meaning';
+        meaningBtn.textContent = '🔍 Get Meaning';
         meaningBtn.disabled = false;
       }
     });
@@ -1068,7 +1111,13 @@
       </div>
 
       <div style="display: flex; flex-direction: column; gap: 12px;">
-        ${cards.map(card => `
+        ${cards.map(card => {
+          // Sanitize all card data to prevent XSS
+          const safeWord = sanitizeForDisplay(card.word);
+          const safeCefrLevel = sanitizeForDisplay(card.cefr_level);
+          const safeDefinition = sanitizeForDisplay(card.definition || '');
+          const safeContext = sanitizeForDisplay(card.context_sentence?.substring(0, 100) || '');
+          return `
           <div class="rl-deck-card" data-card-id="${card.id}" style="
             background: white;
             border: 1px solid #e0e0e0;
@@ -1077,11 +1126,11 @@
             transition: all 0.2s ease;
           ">
             <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
-              <div style="font-size: 16px; font-weight: 600; color: #333;">${card.word}</div>
-              <span style="background: ${getCefrColor(card.cefr_level)}; color: white; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">${card.cefr_level}</span>
+              <div style="font-size: 16px; font-weight: 600; color: #333;">${safeWord}</div>
+              <span style="background: ${getCefrColor(card.cefr_level)}; color: white; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">${safeCefrLevel}</span>
             </div>
-            <div style="font-size: 13px; color: #666; margin-bottom: 8px;">${card.definition || ''}</div>
-            <div style="font-size: 12px; color: #888; font-style: italic; margin-bottom: 12px;">"${card.context_sentence?.substring(0, 100) || ''}..."</div>
+            <div style="font-size: 13px; color: #666; margin-bottom: 8px;">${safeDefinition}</div>
+            <div style="font-size: 12px; color: #888; font-style: italic; margin-bottom: 12px;">"${safeContext}..."</div>
             <div style="display: flex; gap: 8px;">
               <button class="rl-delete-card-btn" data-card-id="${card.id}" style="
                 flex: 1;
@@ -1095,7 +1144,7 @@
               ">🗑️ Delete</button>
             </div>
           </div>
-        `).join('')}
+        `}).join('')}
       </div>
     `;
   }
@@ -1360,10 +1409,16 @@
     const userAnswer = userAnswers[question.id];
     const isCorrect = quizSubmitted && userAnswer === question.correct_answer;
 
+    // Sanitize question data to prevent XSS
+    const safeQuestion = sanitizeForDisplay(question.question);
+    const safeCorrectAnswer = sanitizeForDisplay(question.correct_answer);
+    const safeExplanation = sanitizeForDisplay(question.explanation);
+    const safeUserAnswer = sanitizeForDisplay(userAnswer || '');
+
     let questionHTML = `
       <div style="background: #f5f5f5; padding: 16px; border-radius: 8px; margin-bottom: 16px;">
         <div style="font-size: 14px; font-weight: 600; margin-bottom: 12px; color: #333;">
-          ${index + 1}. ${question.question}
+          ${index + 1}. ${safeQuestion}
         </div>
     `;
 
@@ -1375,6 +1430,9 @@
         const bgColor = quizSubmitted
           ? (key === question.correct_answer ? '#e8f5e9' : (isSelected ? '#ffebee' : 'white'))
           : (isSelected ? '#e3f2fd' : 'white');
+
+        // Sanitize option value
+        const safeValue = sanitizeForDisplay(value);
 
         questionHTML += `
           <label style="
@@ -1388,7 +1446,7 @@
             transition: all 0.2s ease;
           ">
             <input type="radio" name="answer_${question.id}" value="${key}" ${isSelected ? 'checked' : ''} ${quizSubmitted ? 'disabled' : ''} style="margin-right: 8px;">
-            <span style="font-size: 13px;">${key}. ${value}</span>
+            <span style="font-size: 13px;">${key}. ${safeValue}</span>
           </label>
         `;
       }
@@ -1423,7 +1481,7 @@
         : 'white';
 
       questionHTML += `
-        <input type="text" id="answer_${question.id}" value="${userAnswer || ''}" ${quizSubmitted ? 'disabled' : ''}
+        <input type="text" id="answer_${question.id}" value="${safeUserAnswer}" ${quizSubmitted ? 'disabled' : ''}
           style="
             width: 100%;
             padding: 10px;
@@ -1443,8 +1501,8 @@
 
       questionHTML += `
         <div style="background: ${isCorrect ? '#e8f5e9' : '#ffebee'}; padding: 12px; border-radius: 6px; margin-top: 12px; border-left: 4px solid ${color};">
-          <div style="color: ${color}; font-weight: 600; margin-bottom: 4px;">${icon} Réponse correcte: ${question.correct_answer}</div>
-          <div style="font-size: 12px; color: #666;">${question.explanation}</div>
+          <div style="color: ${color}; font-weight: 600; margin-bottom: 4px;">${icon} Réponse correcte: ${safeCorrectAnswer}</div>
+          <div style="font-size: 12px; color: #666;">${safeExplanation}</div>
         </div>
       `;
     }
@@ -1684,27 +1742,45 @@
 
     console.log(`📍 Found ${nodesToReplace.length} text nodes containing "${word}"`);
 
-    // Replace text nodes with highlighted spans
+    // Replace text nodes with highlighted spans using safe DOM manipulation
     nodesToReplace.forEach(textNode => {
       const parent = textNode.parentElement;
-      const newHTML = textNode.textContent.replace(wordPattern, (match) => {
-        return `<span class="rl-highlighted-word" data-translation="${escapeHtml(translation)}" style="
-          background: linear-gradient(135deg, #FFF3E0 0%, #FFE0B2 100%);
-          border-bottom: 2px solid #FF9800;
-          padding: 2px 4px;
-          border-radius: 3px;
-          cursor: help;
-          position: relative;
-        ">${match}</span>`;
-      });
+      const text = textNode.textContent;
 
-      const tempDiv = document.createElement('div');
-      tempDiv.innerHTML = newHTML;
+      // Split text by the word pattern and rebuild with highlighted spans
+      const parts = text.split(wordPattern);
+      const fragment = document.createDocumentFragment();
 
-      while (tempDiv.firstChild) {
-        parent.insertBefore(tempDiv.firstChild, textNode);
+      let isMatch = false;
+      for (let i = 0; i < parts.length; i++) {
+        const part = parts[i];
+        if (part === undefined || part === '') continue;
+
+        // Check if this part matches the word pattern (case-insensitive)
+        if (wordPattern.test(part)) {
+          // This is a match - create highlighted span
+          const span = document.createElement('span');
+          span.className = 'rl-highlighted-word';
+          span.dataset.translation = translation;
+          span.style.cssText = `
+            background: linear-gradient(135deg, #FFF3E0 0%, #FFE0B2 100%);
+            border-bottom: 2px solid #FF9800;
+            padding: 2px 4px;
+            border-radius: 3px;
+            cursor: help;
+            position: relative;
+          `;
+          span.textContent = part; // Safe: uses textContent
+          fragment.appendChild(span);
+          // Reset regex lastIndex for global pattern
+          wordPattern.lastIndex = 0;
+        } else {
+          // This is regular text - create text node
+          fragment.appendChild(document.createTextNode(part));
+        }
       }
-      parent.removeChild(textNode);
+
+      parent.replaceChild(fragment, textNode);
     });
 
     // Add hover tooltips to all highlighted words
@@ -1752,10 +1828,38 @@
     return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 
+  /**
+   * Safely escape HTML entities in text to prevent XSS
+   * Uses textContent assignment which is inherently safe
+   */
   function escapeHtml(text) {
+    if (text === null || text === undefined) return '';
     const div = document.createElement('div');
-    div.textContent = text;
+    div.textContent = String(text);
     return div.innerHTML;
+  }
+
+  /**
+   * Sanitize text for safe display in the UI
+   * Escapes HTML entities to prevent script injection
+   * @param {string} text - The text to sanitize
+   * @returns {string} - Sanitized text safe for innerHTML
+   */
+  function sanitizeForDisplay(text) {
+    if (text === null || text === undefined) return '';
+    return escapeHtml(String(text));
+  }
+
+  /**
+   * Safely set text content of an element
+   * Preferred over innerHTML when only displaying plain text
+   * @param {HTMLElement} element - The element to update
+   * @param {string} text - The text to display
+   */
+  function safeSetText(element, text) {
+    if (element) {
+      element.textContent = text !== null && text !== undefined ? String(text) : '';
+    }
   }
 
   // ========================================
@@ -1790,7 +1894,8 @@
       font-size: 14px;
       box-shadow: 0 2px 10px rgba(0,0,0,0.2);
     `;
-    banner.innerHTML = message;
+    // Use textContent for safety - message is controlled but may contain error.message from APIs
+    banner.textContent = message;
     document.body.prepend(banner);
 
     if (autoRemove && type !== 'loading') {
