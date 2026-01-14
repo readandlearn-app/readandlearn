@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-01-14)
 
 **Core value:** Production-ready, self-hostable infrastructure that anyone can deploy and use to learn languages by reading real content.
-**Current focus:** Phase 4 — Code Quality in progress
+**Current focus:** Phase 5 — Design System (next)
 
 ## Current Position
 
 Phase: 4 of 7 (Code Quality)
-Plan: 2 of 3 in current phase
-Status: In progress
-Last activity: 2026-01-15 — Completed 04-02-PLAN.md
+Plan: 3 of 3 in current phase
+Status: Complete
+Last activity: 2026-01-15 — Completed 04-03-PLAN.md (Extension Modularization)
 
-Progress: ██████░░░░ 57%
+Progress: ███████░░░ 57%
 
 ## Performance Metrics
 
@@ -30,11 +30,11 @@ Progress: ██████░░░░ 57%
 | 1 | 2/2 | 48 min | 24 min |
 | 2 | 2/2 | 26 min | 13 min |
 | 3 | 2/2 | 7 min | 3.5 min |
-| 4 | 2/3 | 11 min | 5.5 min |
+| 4 | 3/3 | 16 min | 5.3 min |
 
 **Recent Trend:**
-- Last 5 plans: 03-01 (2 min), 03-02 (5 min), 04-01 (3 min), 04-02 (8 min)
-- Trend: Backend modularization complete, server.js reduced 93%
+- Last 5 plans: 03-02 (5 min), 04-01 (3 min), 04-02 (8 min), 04-03 (5 min)
+- Trend: Phase 4 Code Quality complete, both backend and extension modularized
 
 ## Accumulated Context
 
@@ -68,6 +68,9 @@ Recent decisions affecting current work:
 | 04-02 | Dependency injection via init() | Enables testing routes in isolation |
 | 04-02 | Services export pure functions | Services don't know about HTTP |
 | 04-02 | Consolidated injection objects | Routes receive { pool, services, middleware } |
+| 04-03 | Dynamic imports for ES modules | MV3 content scripts use import(chrome.runtime.getURL()) |
+| 04-03 | 529 lines vs 150 target | State management code stayed in content.js for cohesion |
+| 04-03 | ui.js consolidation | All UI rendering functions kept together for consistency |
 
 ### Deferred Issues
 
@@ -80,5 +83,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-01-15
-Stopped at: Completed 04-02-PLAN.md (Backend Modularization)
+Stopped at: Completed 04-03-PLAN.md (Extension Modularization) — Phase 4 Complete
 Resume file: None
