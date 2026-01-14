@@ -2,6 +2,7 @@
   "name": "translation-backend",
   "version": "2.0.0",
   "description": "Read & Learn - CEFR Analysis and Vocabulary Deck Builder",
+  "license": "Apache-2.0",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

@@ -167,7 +167,7 @@ MAX_TEXT_WORDS=800
 
 ## Contributing
 
-Contributions welcome! This project is licensed under AGPL-3.0.
+Contributions welcome! This project is licensed under Apache 2.0.
 
 1. Fork the repository
 2. Create a feature branch
@@ -185,7 +185,7 @@ Contributions welcome! This project is licensed under AGPL-3.0.
 
 ## License
 
-AGPL-3.0 - see [LICENSE](LICENSE) file for details.
+Apache-2.0 - see [LICENSE](LICENSE) file for details.
 
 ## Acknowledgments
 
