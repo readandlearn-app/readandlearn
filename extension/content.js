@@ -75,6 +75,16 @@
                     return id;
                   })();
 
+  // Supported EU languages (mirrors backend)
+  const SUPPORTED_LANGUAGES = {
+    bg: 'Bulgarian', hr: 'Croatian', cs: 'Czech', da: 'Danish',
+    nl: 'Dutch', en: 'English', et: 'Estonian', fi: 'Finnish',
+    fr: 'French', de: 'German', el: 'Greek', hu: 'Hungarian',
+    ga: 'Irish', it: 'Italian', lv: 'Latvian', lt: 'Lithuanian',
+    mt: 'Maltese', pl: 'Polish', pt: 'Portuguese', ro: 'Romanian',
+    sk: 'Slovak', sl: 'Slovenian', es: 'Spanish', sv: 'Swedish'
+  };
+
   // State management
   let currentAnalysis = null;
   let menuExpanded = false;
@@ -86,6 +96,7 @@
   let currentQuestionIndex = 0; // Current question being viewed
   let userAnswers = {}; // Stores user's answers {questionId: answer}
   let quizSubmitted = false; // Whether user has checked answers
+  let currentLanguage = null; // { code: 'fr', name: 'French', confidence: 80, isReliable: true }
 
   console.log('✅ Read & Learn activated!');
 
@@ -622,18 +633,31 @@
     return null;
   }
 
-  function isFrench(text) {
-    const frenchWords = ['le', 'la', 'les', 'de', 'du', 'des', 'un', 'une', 'et', 'est', 'dans', 'pour', 'que', 'qui', 'avec', 'sur', 'pas', 'plus'];
-    const words = text.toLowerCase().split(/\s+/).slice(0, 100);
-
-    let frenchWordCount = 0;
-    for (const word of words) {
-      if (frenchWords.includes(word)) {
-        frenchWordCount++;
-      }
-    }
-
-    return frenchWordCount / words.length > 0.1;
+  /**
+   * Detect the language of text using Chrome's built-in language detection API
+   * @param {string} text - Text to analyze
+   * @returns {Promise<{code: string, name: string, confidence: number, isReliable: boolean}|null>}
+   */
+  async function detectLanguage(text) {
+    return new Promise((resolve) => {
+      chrome.i18n.detectLanguage(text, (result) => {
+        if (result && result.languages && result.languages.length > 0) {
+          const detected = result.languages[0];
+          // Handle region codes like 'pt-BR' -> 'pt'
+          const langCode = detected.language.toLowerCase().split('-')[0];
+          if (SUPPORTED_LANGUAGES[langCode]) {
+            resolve({
+              code: langCode,
+              name: SUPPORTED_LANGUAGES[langCode],
+              confidence: detected.percentage,
+              isReliable: result.isReliable
+            });
+            return;
+          }
+        }
+        resolve(null); // Unsupported or undetected
+      });
+    });
   }
 
   // ========================================
@@ -653,19 +677,27 @@
       const text = articleElement.innerText;
       console.log(`Found article with ${text.length} characters`);
 
-      if (!isFrench(text)) {
-        showBanner('❌ This doesn\'t appear to be French text', 'error');
+      // Detect language using Chrome's built-in API
+      showBanner('🔄 Detecting language...', 'loading');
+      const detected = await detectLanguage(text);
+
+      if (!detected) {
+        showBanner('❌ Unsupported language detected. Supported: EU languages (French, Spanish, German, etc.)', 'error');
         return;
       }
 
-      showBanner('🔄 Analyzing French level... (this may take 5-10 seconds)', 'loading');
+      currentLanguage = detected;
+      console.log(`Detected language: ${detected.name} (${detected.code}) with ${detected.confidence}% confidence`);
+
+      showBanner(`🔄 Analyzing ${detected.name} level... (this may take 5-10 seconds)`, 'loading');
 
       const response = await apiFetch('/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           text,
-          url: window.location.href
+          url: window.location.href,
+          language: detected.code
         })
       });
 
