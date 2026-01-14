@@ -71,6 +71,23 @@ curl http://localhost:3000/health
    - Select the `extension/` folder
    - Pin the extension to your toolbar
 
+### Cloud Deployment (One-Click)
+
+Deploy your own backend instance to the cloud:
+
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/template/readandlearn?referralCode=readandlearn)
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/readandlearn-app/readandlearn)
+
+**After deployment:**
+1. Set `CLAUDE_API_KEY` in your environment variables
+2. Note your deployment URL (e.g., `https://readandlearn-backend.railway.app`)
+3. Update the extension to point to your backend URL
+
+**Estimated costs:**
+- Railway: ~$5/month (Starter plan)
+- Render: ~$7/month (Starter plan with PostgreSQL)
+
 ## Usage
 
 1. Navigate to any French article (e.g., [Le Monde](https://www.lemonde.fr))

@@ -1,0 +1,54 @@
+# render.yaml - Render Blueprint for Read & Learn Backend
+# Deploy with one click: https://render.com/deploy
+
+services:
+  - type: web
+    name: readandlearn-backend
+    env: node
+    region: oregon
+    plan: starter
+    buildCommand: npm ci --only=production
+    startCommand: node server.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: CLAUDE_API_KEY
+        sync: false
+      - key: DB_HOST
+        fromDatabase:
+          name: readandlearn-db
+          property: host
+      - key: DB_PORT
+        fromDatabase:
+          name: readandlearn-db
+          property: port
+      - key: DB_NAME
+        fromDatabase:
+          name: readandlearn-db
+          property: database
+      - key: DB_USER
+        fromDatabase:
+          name: readandlearn-db
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: readandlearn-db
+          property: password
+      - key: ENABLE_CACHING
+        value: "true"
+      - key: ENABLE_ANALYTICS
+        value: "true"
+      - key: MAX_TEXT_WORDS
+        value: "800"
+    autoDeploy: false
+
+databases:
+  - name: readandlearn-db
+    databaseName: readandlearn
+    user: readandlearn
+    plan: starter
+    postgresMajorVersion: 16
+    ipAllowList: []
