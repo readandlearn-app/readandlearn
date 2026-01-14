@@ -14,7 +14,7 @@ None
 - Integer phases (1, 2, 3): Planned milestone work
 - Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
 
-- [ ] **Phase 1: Production Infrastructure** - Remove hardcoded URLs, environment configuration, security fixes
+- [ ] **Phase 1: Production Infrastructure** - Remove hardcoded URLs, environment configuration, security fixes (1/2 plans complete)
 - [ ] **Phase 2: Multi-Language Foundation** - Language detection, CEFR expansion beyond French
 - [ ] **Phase 3: PDF Reading** - Local and browser PDF extraction and analysis
 - [ ] **Phase 4: Code Quality** - Test coverage, error handling, modularize monolithic files
@@ -121,7 +121,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Production Infrastructure | 0/TBD | Not started | - |
+| 1. Production Infrastructure | 1/2 | In progress | - |
 | 2. Multi-Language Foundation | 0/TBD | Not started | - |
 | 3. PDF Reading | 0/TBD | Not started | - |
 | 4. Code Quality | 0/TBD | Not started | - |
