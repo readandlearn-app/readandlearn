@@ -8,11 +8,34 @@ A self-hostable Chrome extension that helps language learners read authentic con
 
 Production-ready, self-hostable infrastructure that anyone can deploy and use to learn languages by reading real content.
 
+## Current State (v1.0)
+
+**Shipped:** 2026-01-15
+
+Production-ready MVP with:
+- Multi-language CEFR analysis (24 EU languages)
+- PDF support (local and online)
+- Modular, testable codebase
+- Design system with tokens and documentation
+- One-click Railway/Render deployment
+- Apache 2.0 license
+
+**Tech Stack:**
+- Chrome Extension MV3 with ES modules
+- Node.js 20 / Express backend
+- PostgreSQL 16 + pgvector
+- Xenova transformers for local embeddings
+
+**Codebase Stats:**
+- Backend: 100-line server.js + modular routes/services
+- Extension: 529-line content.js + 5 modules
+- 66 files, ~6k net lines added
+
 ## Requirements
 
 ### Validated
 
-<!-- Shipped and confirmed valuable — existing functionality from brownfield codebase. -->
+<!-- Shipped and confirmed working in v1.0 -->
 
 - ✓ French CEFR analysis with confidence levels and reasoning — existing
 - ✓ Vocabulary deck management (add, view, delete, export to Anki/JSON) — existing
@@ -23,44 +46,21 @@ Production-ready, self-hostable infrastructure that anyone can deploy and use to
 - ✓ Docker Compose deployment — existing
 - ✓ Local ML embeddings via Xenova transformers — existing
 - ✓ PostgreSQL with pgvector for semantic similarity — existing
+- ✓ Multi-language support for all 24 EU CEFR languages — v1.0
+- ✓ Auto-detect article language with manual override — v1.0
+- ✓ PDF reading and analysis (local and online) — v1.0
+- ✓ Configurable backend URLs (no hardcoded localhost) — v1.0
+- ✓ Proper CORS and security (rate limiting, XSS mitigation) — v1.0
+- ✓ Modular codebase with test foundation — v1.0
+- ✓ Design system with centralized tokens — v1.0
+- ✓ Railway and Render one-click deployment — v1.0
+- ✓ Apache 2.0 license — v1.0
 
 ### Active
 
-<!-- Current scope. Building toward these. -->
+<!-- Next milestone scope -->
 
-**Multi-Language Support:**
-- [ ] Expand beyond French to all EU CEFR languages
-- [ ] Auto-detect article language with manual override option
-- [ ] Language-specific frequency dictionaries
-
-**PDF Support:**
-- [ ] Read and analyze local PDF files
-- [ ] Read and analyze online PDFs in browser
-- [ ] PDF text extraction and CEFR analysis
-
-**Production-Ready Infrastructure:**
-- [ ] Remove hardcoded localhost URLs (configurable backend)
-- [ ] Environment-based configuration for all settings
-- [ ] Test coverage for critical paths
-- [ ] Proper error handling and user feedback
-- [ ] Fix security concerns (CORS, input validation, XSS)
-
-**Deployment & Documentation:**
-- [ ] Railway one-click deploy template
-- [ ] Render one-click deploy template
-- [ ] Updated README with deployment guide
-- [ ] Docker setup documentation
-
-**Design System:**
-- [ ] Document existing color palette (purple gradient, CEFR colors)
-- [ ] Document typography (Cinzel font, sizing)
-- [ ] Component patterns and spacing guidelines
-- [ ] Readability-focused design principles
-- [ ] Accessibility guidelines (contrast, font sizes)
-
-**Housekeeping:**
-- [ ] Change license from AGPL-3.0 to Apache 2.0
-- [ ] Split monolithic files (content.js, server.js) into modules
+(No active requirements — v1.0 complete, awaiting user feedback for v1.1 scope)
 
 ### Out of Scope
 
@@ -75,27 +75,12 @@ Production-ready, self-hostable infrastructure that anyone can deploy and use to
 
 ## Context
 
-**Existing Codebase:**
-This is a brownfield project with a working French-only implementation. The codebase map in `.planning/codebase/` documents:
-- Architecture: Two-tier client-server (Chrome Extension + Express API)
-- Stack: JavaScript, Node.js 20, Express, PostgreSQL 16 + pgvector
-- Key innovation: Three-tier caching reduces AI API costs by ~80%
-
-**Technical Debt (from CONCERNS.md):**
-- Hardcoded `localhost:3000` URLs need configuration
-- Monolithic files (content.js: 1813 lines, server.js: 1237 lines)
-- No test coverage
-- XSS concerns with innerHTML usage
-- Overly permissive CORS configuration
+**v1.0 Shipped:**
+Self-hostable language learning extension with full EU language support, PDF capabilities, and one-click cloud deployment. Ready for user testing.
 
 **Target Users:**
 - Self-hosters: developers, language learners, educational institutions
 - All need accessible setup (Docker Compose + one-click PaaS deploys)
-
-**Current State:**
-- Only the creator using it currently
-- Free to make breaking changes
-- No migration concerns
 
 ## Constraints
 
@@ -111,12 +96,18 @@ This is a brownfield project with a working French-only implementation. The code
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| All EU languages at once | User wants comprehensive multi-language support from start | — Pending |
-| PDF support in v1 | Core to the "read & learn" value proposition | — Pending |
-| Apache 2.0 license | Permissive with patent protection, better for adoption | — Pending |
-| No auth in self-hosted | Auth complexity stays with platform, keeps OSS simple | — Pending |
-| Railway + Render templates | One-click deploy for non-technical users | — Pending |
-| Readability-focused design | Extension shouldn't distract from reading | — Pending |
+| All EU languages at once | User wants comprehensive multi-language support from start | ✓ Good |
+| PDF support in v1 | Core to the "read & learn" value proposition | ✓ Good |
+| Apache 2.0 license | Permissive with patent protection, better for adoption | ✓ Good |
+| No auth in self-hosted | Auth complexity stays with platform, keeps OSS simple | ✓ Good |
+| Railway + Render templates | One-click deploy for non-technical users | ✓ Good |
+| Readability-focused design | Extension shouldn't distract from reading | ✓ Good |
+| chrome.storage.sync for config | MV3 service workers can't use localStorage reliably | ✓ Good |
+| ISO 639-1 language codes | Standard for web APIs, HTML lang, Accept-Language | ✓ Good |
+| PDF.js v4.x not v5.x | v5.x requires Promise.withResolvers (newer Chrome only) | ✓ Good |
+| Vitest over Jest | Modern ESM support, faster execution | ✓ Good |
+| Dynamic imports for ES modules | MV3 content scripts use import(chrome.runtime.getURL()) | ✓ Good |
+| Dependency injection via init() | Enables testing routes in isolation | ✓ Good |
 
 ---
-*Last updated: 2026-01-14 after initialization*
+*Last updated: 2026-01-15 after v1.0 milestone*
