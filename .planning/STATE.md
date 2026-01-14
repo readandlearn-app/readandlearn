@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-01-14)
 ## Current Position
 
 Phase: 4 of 7 (Code Quality)
-Plan: 1 of 3 in current phase
+Plan: 2 of 3 in current phase
 Status: In progress
-Last activity: 2026-01-15 — Completed 04-01-PLAN.md
+Last activity: 2026-01-15 — Completed 04-02-PLAN.md
 
-Progress: ██████░░░░ 50%
+Progress: ██████░░░░ 57%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 7
+- Total plans completed: 8
 - Average duration: 12 min
-- Total execution time: 1.43 hours
+- Total execution time: 1.56 hours
 
 **By Phase:**
 
@@ -30,11 +30,11 @@ Progress: ██████░░░░ 50%
 | 1 | 2/2 | 48 min | 24 min |
 | 2 | 2/2 | 26 min | 13 min |
 | 3 | 2/2 | 7 min | 3.5 min |
-| 4 | 1/3 | 3 min | 3 min |
+| 4 | 2/3 | 11 min | 5.5 min |
 
 **Recent Trend:**
-- Last 5 plans: 02-02 (23 min), 03-01 (2 min), 03-02 (5 min), 04-01 (3 min)
-- Trend: Phase 4 started - Vitest test framework set up
+- Last 5 plans: 03-01 (2 min), 03-02 (5 min), 04-01 (3 min), 04-02 (8 min)
+- Trend: Backend modularization complete, server.js reduced 93%
 
 ## Accumulated Context
 
@@ -65,6 +65,9 @@ Recent decisions affecting current work:
 | 03-02 | 100 char minimum for PDF | Catch scanned/image-only PDFs with helpful error |
 | 04-01 | Vitest over Jest | Modern ESM support, faster execution |
 | 04-01 | Extract validation first | Simplest extraction target for test foundation |
+| 04-02 | Dependency injection via init() | Enables testing routes in isolation |
+| 04-02 | Services export pure functions | Services don't know about HTTP |
+| 04-02 | Consolidated injection objects | Routes receive { pool, services, middleware } |
 
 ### Deferred Issues
 
@@ -77,5 +80,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-01-15
-Stopped at: Completed 04-01-PLAN.md (Test Framework Setup)
+Stopped at: Completed 04-02-PLAN.md (Backend Modularization)
 Resume file: None
