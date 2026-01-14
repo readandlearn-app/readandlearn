@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-01-14)
 
 **Core value:** Production-ready, self-hostable infrastructure that anyone can deploy and use to learn languages by reading real content.
-**Current focus:** Phase 5 — Design System (next)
+**Current focus:** Phase 6 — Deployment Templates (next)
 
 ## Current Position
 
-Phase: 4 of 7 (Code Quality)
-Plan: 3 of 3 in current phase
+Phase: 5 of 7 (Design System)
+Plan: 2 of 2 in current phase
 Status: Complete
-Last activity: 2026-01-15 — Completed 04-03-PLAN.md (Extension Modularization)
+Last activity: 2026-01-15 — Completed 05-02-PLAN.md (Design System Documentation)
 
-Progress: ███████░░░ 57%
+Progress: ████████░░ 71%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 8
-- Average duration: 12 min
-- Total execution time: 1.56 hours
+- Total plans completed: 10
+- Average duration: 10 min
+- Total execution time: 1.7 hours
 
 **By Phase:**
 
@@ -31,10 +31,11 @@ Progress: ███████░░░ 57%
 | 2 | 2/2 | 26 min | 13 min |
 | 3 | 2/2 | 7 min | 3.5 min |
 | 4 | 3/3 | 16 min | 5.3 min |
+| 5 | 2/2 | 6 min | 3 min |
 
 **Recent Trend:**
-- Last 5 plans: 03-02 (5 min), 04-01 (3 min), 04-02 (8 min), 04-03 (5 min)
-- Trend: Phase 4 Code Quality complete, both backend and extension modularized
+- Last 5 plans: 04-02 (8 min), 04-03 (5 min), 05-01 (3 min), 05-02 (3 min)
+- Trend: Phase 5 Design System complete, tokens extracted and documented
 
 ## Accumulated Context
 
@@ -71,6 +72,8 @@ Recent decisions affecting current work:
 | 04-03 | Dynamic imports for ES modules | MV3 content scripts use import(chrome.runtime.getURL()) |
 | 04-03 | 529 lines vs 150 target | State management code stayed in content.js for cohesion |
 | 04-03 | ui.js consolidation | All UI rendering functions kept together for consistency |
+| 05-01 | Flat CEFR object | COLORS.cefr.A1 pattern for simple level-based access |
+| 05-02 | Co-located docs | DESIGN.md lives with design.js in modules/ |
 
 ### Deferred Issues
 
@@ -83,5 +86,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-01-15
-Stopped at: Completed 04-03-PLAN.md (Extension Modularization) — Phase 4 Complete
+Stopped at: Completed 05-02-PLAN.md (Design System Documentation) — Phase 5 Complete
 Resume file: None
