@@ -1,5 +1,7 @@
 // Utility functions for Read & Learn extension
 
+import { COLORS } from './design.js';
+
 /**
  * Safely escape HTML entities in text to prevent XSS
  * Uses textContent assignment which is inherently safe
@@ -85,18 +87,10 @@ export const SUPPORTED_LANGUAGES = {
 };
 
 /**
- * Get CEFR level color
+ * Get CEFR level color from centralized design tokens
  * @param {string} level - CEFR level (A1-C2)
  * @returns {string} Color hex code
  */
 export function getCefrColor(level) {
-  const colors = {
-    'A1': '#4CAF50',
-    'A2': '#8BC34A',
-    'B1': '#FFC107',
-    'B2': '#FF9800',
-    'C1': '#FF5722',
-    'C2': '#9C27B0'
-  };
-  return colors[level] || '#667eea';
+  return COLORS.cefr[level] || COLORS.primary.start;
 }
