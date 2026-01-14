@@ -773,7 +773,14 @@ Return ONLY valid JSON:
 // ========================================
 async function lookupDictionary(word, language = 'fr') {
   try {
-    console.log(`📚 Checking dictionaries for: "${word}"`);
+    // Dictionary lookup only available for French currently
+    // Other languages go directly to Claude AI
+    if (language !== 'fr') {
+      console.log(`📚 Dictionary lookup skipped for ${getLanguageName(language)} (using AI)`);
+      return null;
+    }
+
+    console.log(`📚 Checking French dictionaries for: "${word}"`);
 
     // Check frequency list dictionary first (5k words)
     const freqResult = await pool.query(
@@ -827,7 +834,8 @@ async function lookupDictionary(word, language = 'fr') {
 // HELPER: AI Definition (Contextual)
 // ========================================
 async function getClaudeDefinition(word, context = '', language = 'fr') {
-  console.log('🤖 Calling AI for contextual definition...');
+  const languageName = getLanguageName(language);
+  console.log(`🤖 Calling AI for ${languageName} definition...`);
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -841,7 +849,7 @@ async function getClaudeDefinition(word, context = '', language = 'fr') {
       max_tokens: 150,
       messages: [{
         role: 'user',
-        content: `Define French word "${word}"${context ? ` in context: "${context}"` : ''}. Provide the definition and translation in English. Return JSON:
+        content: `Define ${languageName} word "${word}"${context ? ` in context: "${context}"` : ''}. Provide the definition and translation in English. Return JSON:
 {"definition":"... (in English)","translation":"... (in English)","cefr":"B2","type":"noun/verb/adj/adv/connector"}`
       }]
     })
@@ -987,7 +995,9 @@ app.post('/define-batch', requireValidApiKey, async (req, res) => {
       return res.status(400).json({ error: 'Words array is required' });
     }
 
-    console.log(`📚 Batch define: ${words.length} words`);
+    const normalizedLanguage = language.toLowerCase();
+    const languageName = getLanguageName(normalizedLanguage);
+    console.log(`📚 Batch define: ${words.length} ${languageName} words`);
 
     const results = [];
     const uncachedWords = [];
@@ -997,7 +1007,7 @@ app.post('/define-batch', requireValidApiKey, async (req, res) => {
       const word = typeof wordObj === 'string' ? wordObj : wordObj.word;
       const cacheResult = await pool.query(
         'SELECT * FROM vocabulary_cache WHERE word = $1 AND language = $2',
-        [word.toLowerCase(), language]
+        [word.toLowerCase(), normalizedLanguage]
       );
 
       if (cacheResult.rows.length > 0) {
@@ -1033,7 +1043,7 @@ app.post('/define-batch', requireValidApiKey, async (req, res) => {
           max_tokens: 800,
           messages: [{
             role: 'user',
-            content: `Define these French words: ${wordsList}. Provide definitions and translations in English. Return JSON array:
+            content: `Define these ${languageName} words: ${wordsList}. Provide definitions and translations in English. Return JSON array:
 [{"word":"word1","definition":"... (in English)","translation":"... (in English)","cefr":"B2","type":"noun"},...]`
           }]
         })
@@ -1061,11 +1071,11 @@ app.post('/define-batch', requireValidApiKey, async (req, res) => {
               `INSERT INTO vocabulary_cache (word, language, definition, translation, cefr_level, word_type)
                VALUES ($1, $2, $3, $4, $5, $6)
                ON CONFLICT (word, language) DO NOTHING`,
-              [item.word.toLowerCase(), language, item.definition, item.translation, item.cefr, item.type]
+              [item.word.toLowerCase(), normalizedLanguage, item.definition, item.translation, item.cefr, item.type]
             );
 
-            // Store in learned dictionary (if French)
-            if (language === 'fr' && item.definition && item.translation) {
+            // Store in learned dictionary (French only - dictionary optimization)
+            if (normalizedLanguage === 'fr' && item.definition && item.translation) {
               await pool.query(
                 `INSERT INTO learned_dictionary (word, translation, part_of_speech, definition_en)
                  VALUES ($1, $2, $3, $4)
@@ -1078,7 +1088,7 @@ app.post('/define-batch', requireValidApiKey, async (req, res) => {
             results.push({ ...item, cached: false });
           }
 
-          await logUsage('define-batch', language, false, inputTokens + outputTokens, cost);
+          await logUsage('define-batch', normalizedLanguage, false, inputTokens + outputTokens, cost);
         } catch (parseError) {
           console.error('❌ Failed to parse batch:', content);
         }
