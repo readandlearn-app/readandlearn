@@ -1,14 +1,26 @@
+/**
+ * Read & Learn Extension - Content Script Entry Point
+ * Thin orchestration layer that imports and wires together modular components
+ *
+ * Security note: All innerHTML usage in this file and imported modules uses
+ * sanitizeForDisplay() from utils.js to escape HTML entities before rendering.
+ * This prevents XSS from user input or API responses.
+ */
+
 (async function() {
   'use strict';
 
   console.log('🚀 Read & Learn v2.0 starting...');
-  console.log('Page URL:', window.location.href);
 
-  // Check if this is the demo page - skip if it is
+  // ========================================
+  // EARLY CHECKS
+  // ========================================
+
+  // Check if this is the demo page
   if (window.READANDLEARN_DEMO_PAGE === true ||
       document.documentElement.getAttribute('data-readandlearn-demo') === 'true' ||
       document.querySelector('meta[name="readandlearn-demo"]')) {
-    console.log('⚠️ Read & Learn demo page detected - extension disabled to avoid conflicts');
+    console.log('⚠️ Demo page detected - extension disabled');
     return;
   }
 
@@ -26,2269 +38,492 @@
 
   // Prevent multiple injections
   if (window.readAndLearnInjected) {
-    console.log('⚠️ Read & Learn already running on this page');
+    console.log('⚠️ Read & Learn already running');
     return;
   }
   window.readAndLearnInjected = true;
 
-  // Backend URL is now configured via chrome.storage.sync and handled by background.js
-  // All API requests go through message passing to background.js
+  // ========================================
+  // LOAD MODULES
+  // ========================================
 
-  // Helper function to make API requests via background script (bypasses Private Network Access)
-  async function apiFetch(endpoint, options = {}) {
-    return new Promise((resolve, reject) => {
-      // Pass endpoint directly - background.js will prepend the configured backend URL
-      const url = endpoint;
+  let utils, api, language, pdf, ui;
 
-      chrome.runtime.sendMessage({
-        type: 'API_REQUEST',
-        url: url,
-        options: options,
-        expectJson: true
-      }, response => {
-        if (chrome.runtime.lastError) {
-          reject(new Error(chrome.runtime.lastError.message));
-          return;
-        }
+  try {
+    // Dynamic imports from extension resources
+    const modulePath = (name) => chrome.runtime.getURL(`modules/${name}.js`);
 
-        if (!response) {
-          reject(new Error('No response from background script'));
-          return;
-        }
+    [utils, api, language, pdf, ui] = await Promise.all([
+      import(modulePath('utils')),
+      import(modulePath('api')),
+      import(modulePath('language')),
+      import(modulePath('pdf')),
+      import(modulePath('ui'))
+    ]);
 
-        // Create a response-like object for consistency with fetch API
-        resolve({
-          ok: response.ok || false,
-          status: response.status || 500,
-          json: async () => response.data || { error: response.error || 'Unknown error' },
-          text: async () => JSON.stringify(response.data || { error: response.error || 'Unknown error' })
-        });
-      });
-    });
+    console.log('✅ Modules loaded successfully');
+  } catch (error) {
+    console.error('❌ Failed to load modules:', error);
+    return;
   }
 
-  // Generate unique user ID (browser fingerprint)
-  const USER_ID = localStorage.getItem('readandlearn_user_id') ||
-                  (() => {
-                    const id = 'user_' + Math.random().toString(36).substring(2, 15);
-                    localStorage.setItem('readandlearn_user_id', id);
-                    return id;
-                  })();
+  // ========================================
+  // STATE
+  // ========================================
 
-  // Supported EU languages (mirrors backend)
-  const SUPPORTED_LANGUAGES = {
-    bg: 'Bulgarian', hr: 'Croatian', cs: 'Czech', da: 'Danish',
-    nl: 'Dutch', en: 'English', et: 'Estonian', fi: 'Finnish',
-    fr: 'French', de: 'German', el: 'Greek', hu: 'Hungarian',
-    ga: 'Irish', it: 'Italian', lv: 'Latvian', lt: 'Lithuanian',
-    mt: 'Maltese', pl: 'Polish', pt: 'Portuguese', ro: 'Romanian',
-    sk: 'Slovak', sl: 'Slovenian', es: 'Spanish', sv: 'Swedish'
+  const state = {
+    currentAnalysis: null,
+    menuExpanded: false,
+    selectionModeActive: localStorage.getItem('rl-selection-mode') === 'true',
+    currentArticleElement: null,
+    persistentTooltips: {},
+    currentQuestions: null,
+    currentQuestionIndex: 0,
+    userAnswers: {},
+    quizSubmitted: false
   };
 
-  // State management
-  let currentAnalysis = null;
-  let menuExpanded = false;
-  // Load selection mode state from localStorage
-  let selectionModeActive = localStorage.getItem('rl-selection-mode') === 'true';
-  let currentArticleElement = null;
-  let persistentTooltips = {}; // Stores word translations that persist on page
-  let currentQuestions = null; // Stores current question set
-  let currentQuestionIndex = 0; // Current question being viewed
-  let userAnswers = {}; // Stores user's answers {questionId: answer}
-  let quizSubmitted = false; // Whether user has checked answers
-  let currentLanguage = null; // { code: 'fr', name: 'French', confidence: 80, isReliable: true }
-  // Load manual language override from localStorage
-  let manualLanguageOverride = localStorage.getItem('rl-language-override') || null;
-
-  console.log('✅ Read & Learn activated!');
-
-  // Load Google Font
-  const fontLink = document.createElement('link');
-  fontLink.href = 'https://fonts.googleapis.com/css2?family=Cinzel:wght@900&display=swap';
-  fontLink.rel = 'stylesheet';
-  document.head.appendChild(fontLink);
-
-  // ========================================
-  // COLOR DETECTION
-  // ========================================
-  function getDominantColor() {
-    const bodyBg = window.getComputedStyle(document.body).backgroundColor;
-
-    let mainBg = bodyBg;
-    const mainElements = ['main', 'article', '[role="main"]', '.content', '#content'];
-    for (const selector of mainElements) {
-      const el = document.querySelector(selector);
-      if (el) {
-        const bg = window.getComputedStyle(el).backgroundColor;
-        if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') {
-          mainBg = bg;
-          break;
-        }
-      }
-    }
-
-    const parseRGB = (rgbString) => {
-      const match = rgbString.match(/\d+/g);
-      return match ? match.map(Number) : [255, 255, 255];
-    };
-
-    const [r, g, b] = parseRGB(mainBg);
-    return { r, g, b };
-  }
-
-  function getComplementaryColor(r, g, b) {
-    const rNorm = r / 255;
-    const gNorm = g / 255;
-    const bNorm = b / 255;
-
-    const max = Math.max(rNorm, gNorm, bNorm);
-    const min = Math.min(rNorm, gNorm, bNorm);
-    const delta = max - min;
-
-    let h = 0;
-    if (delta !== 0) {
-      if (max === rNorm) {
-        h = 60 * (((gNorm - bNorm) / delta) % 6);
-      } else if (max === gNorm) {
-        h = 60 * (((bNorm - rNorm) / delta) + 2);
-      } else {
-        h = 60 * (((rNorm - gNorm) / delta) + 4);
-      }
-    }
-    if (h < 0) h += 360;
-
-    const l = (max + min) / 2;
-    const s = delta === 0 ? 0 : delta / (1 - Math.abs(2 * l - 1));
-
-    const compH = (h + 180) % 360;
-    const compS = Math.max(s, 0.7);
-    const compL = l > 0.5 ? 0.35 : 0.65;
-
-    const c = (1 - Math.abs(2 * compL - 1)) * compS;
-    const x = c * (1 - Math.abs(((compH / 60) % 2) - 1));
-    const m = compL - c / 2;
-
-    let r2, g2, b2;
-    if (compH >= 0 && compH < 60) {
-      [r2, g2, b2] = [c, x, 0];
-    } else if (compH >= 60 && compH < 120) {
-      [r2, g2, b2] = [x, c, 0];
-    } else if (compH >= 120 && compH < 180) {
-      [r2, g2, b2] = [0, c, x];
-    } else if (compH >= 180 && compH < 240) {
-      [r2, g2, b2] = [0, x, c];
-    } else if (compH >= 240 && compH < 300) {
-      [r2, g2, b2] = [x, 0, c];
-    } else {
-      [r2, g2, b2] = [c, 0, x];
-    }
-
-    const toRGB = (val) => Math.round((val + m) * 255);
-    return {
-      r: toRGB(r2),
-      g: toRGB(g2),
-      b: toRGB(b2)
-    };
-  }
-
-  // ========================================
-  // R/L BUTTON
-  // ========================================
-  function showRLButton() {
-    const existingButton = document.getElementById('rl-button');
-    if (existingButton) {
-      existingButton.remove();
-    }
-
-    // Load saved position from localStorage
-    const savedPosition = localStorage.getItem('rl-button-position');
-    const position = savedPosition ? JSON.parse(savedPosition) : { top: '33%' };
-
-    const dominant = getDominantColor();
-    const opposite = getComplementaryColor(dominant.r, dominant.g, dominant.b);
-
-    const color1 = `rgb(${opposite.r}, ${opposite.g}, ${opposite.b})`;
-    const color2 = `rgb(${Math.max(0, opposite.r - 30)}, ${Math.max(0, opposite.g - 30)}, ${Math.max(0, opposite.b - 30)})`;
-
-    const button = document.createElement('div');
-    button.id = 'rl-button';
-    button.style.cssText = `
-      position: fixed;
-      top: ${position.top};
-      right: 0;
-      width: 60px;
-      height: 80px;
-      background: linear-gradient(135deg, ${color1} 0%, ${color2} 100%);
-      color: white;
-      border-radius: 12px 0 0 12px;
-      box-shadow: -2px 4px 20px rgba(0,0,0,0.3);
-      z-index: 999999;
-      font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      cursor: move;
-      transition: box-shadow 0.3s ease;
-      user-select: none;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-direction: column;
-      font-weight: 700;
-    `;
-
-    button.innerHTML = `
-      <div style="font-size: 20px; line-height: 1.1; font-weight: 900; text-align: center; font-family: 'Cinzel', 'Playfair Display', 'Bodoni MT', 'Didot', 'Georgia', serif; letter-spacing: 2px; text-shadow: 0 2px 4px rgba(0,0,0,0.3); pointer-events: none;">
-        <div>R</div>
-        <div style="margin-top: -3px; font-size: 16px;">/</div>
-        <div style="margin-top: -3px;">L</div>
-      </div>
-    `;
-
-    // Draggable functionality
-    let isDragging = false;
-    let startY = 0;
-    let startTop = 0;
-
-    button.addEventListener('mousedown', (e) => {
-      isDragging = true;
-      startY = e.clientY;
-      startTop = button.offsetTop;
-      button.style.transition = 'none';
-      button.style.cursor = 'grabbing';
-      e.preventDefault();
-    });
-
-    document.addEventListener('mousemove', (e) => {
-      if (!isDragging) return;
-
-      const deltaY = e.clientY - startY;
-      const newTop = startTop + deltaY;
-      const maxTop = window.innerHeight - button.offsetHeight;
-
-      const clampedTop = Math.max(0, Math.min(newTop, maxTop));
-      button.style.top = `${clampedTop}px`;
-    });
-
-    document.addEventListener('mouseup', (e) => {
-      if (isDragging) {
-        isDragging = false;
-        button.style.transition = 'box-shadow 0.3s ease';
-        button.style.cursor = 'move';
-
-        // Save position to localStorage
-        const currentTop = button.style.top;
-        localStorage.setItem('rl-button-position', JSON.stringify({ top: currentTop }));
-
-        // If moved less than 5px, consider it a click
-        const moved = Math.abs(e.clientY - startY);
-        if (moved < 5) {
-          toggleMenu();
-        }
-      }
-    });
-
-    button.addEventListener('mouseenter', () => {
-      if (!isDragging) {
-        button.style.boxShadow = '-4px 6px 28px rgba(0,0,0,0.4)';
-      }
-    });
-
-    button.addEventListener('mouseleave', () => {
-      if (!isDragging) {
-        button.style.boxShadow = '-2px 4px 20px rgba(0,0,0,0.3)';
-      }
-    });
-
-    document.body.appendChild(button);
-    console.log('✅ R/L button displayed (draggable)');
-  }
-
-  // ========================================
-  // EXPANDABLE MENU
-  // ========================================
-  function toggleMenu() {
-    menuExpanded = !menuExpanded;
-
-    if (menuExpanded) {
-      showMenu();
-    } else {
-      hideMenu();
-    }
-  }
-
-  function showMenu() {
-    const existingMenu = document.getElementById('rl-menu');
-    if (existingMenu) return;
-
-    const dominant = getDominantColor();
-    const opposite = getComplementaryColor(dominant.r, dominant.g, dominant.b);
-    const color1 = `rgb(${opposite.r}, ${opposite.g}, ${opposite.b})`;
-
-    const menu = document.createElement('div');
-    menu.id = 'rl-menu';
-    menu.style.cssText = `
-      position: fixed;
-      top: 80px;
-      right: 20px;
-      width: 320px;
-      max-height: 600px;
-      background: white;
-      border-radius: 12px;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.08);
-      z-index: 999998;
-      font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      overflow-y: auto;
-      transform: translateY(-10px) scale(0.95);
-      opacity: 0;
-      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-    `;
-
-    menu.innerHTML = `
-      <div style="position: sticky; top: 0; background: linear-gradient(135deg, ${color1} 0%, ${color1} 100%); padding: 16px; color: white; z-index: 1; border-radius: 12px 12px 0 0;">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <div style="font-size: 20px; font-weight: 900; font-family: 'Cinzel', serif;">R/L</div>
-          <button id="rl-close-btn" style="background: rgba(255,255,255,0.2); border: none; color: white; font-size: 20px; cursor: pointer; padding: 4px 8px; border-radius: 6px; transition: all 0.2s;">&times;</button>
-        </div>
-        <div style="font-size: 11px; opacity: 0.85; margin-top: 2px;">Read & Learn</div>
-      </div>
-
-      <div id="rl-menu-content" style="padding: 16px;">
-        ${currentAnalysis ? renderAnalysisView() : renderInitialView()}
-      </div>
-    `;
-
-    document.body.appendChild(menu);
-
-    // Trigger pop-in animation
-    setTimeout(() => {
-      menu.style.transform = 'translateY(0) scale(1)';
-      menu.style.opacity = '1';
-    }, 10);
-
-    // Event listeners
-    document.getElementById('rl-close-btn').addEventListener('click', hideMenu);
-
-    // Attach action button listeners
-    attachMenuListeners();
-  }
-
-  function renderLanguageSelector() {
-    const current = manualLanguageOverride || 'auto';
-    const detectedInfo = currentLanguage ? ` (detected: ${currentLanguage.name})` : '';
-
-    let options = `<option value="auto"${current === 'auto' ? ' selected' : ''}>Auto-detect${detectedInfo}</option>`;
-    for (const [code, name] of Object.entries(SUPPORTED_LANGUAGES)) {
-      const selected = current === code ? ' selected' : '';
-      options += `<option value="${code}"${selected}>${name}</option>`;
-    }
-
-    return `
-      <div style="margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid rgba(0,0,0,0.1);">
-        <label style="display: block; font-size: 11px; color: #888; margin-bottom: 4px;">Article Language</label>
-        <select id="rl-language-select" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #ddd; background: white; color: #333; font-size: 13px; cursor: pointer;">
-          ${options}
-        </select>
-      </div>
-    `;
-  }
-
-  function renderInitialView() {
-    return `
-      ${renderLanguageSelector()}
-      <div style="text-align: center; padding: 40px 20px;">
-        <div style="font-size: 48px; margin-bottom: 20px;">📚</div>
-        <div style="font-size: 18px; font-weight: 600; margin-bottom: 12px; color: #333;">Analyze This Page</div>
-        <div style="font-size: 14px; color: #666; margin-bottom: 24px;">Get CEFR level, vocabulary insights, and build your flashcard deck</div>
-        <button id="rl-analyze-btn" style="
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          color: white;
-          border: none;
-          padding: 12px 28px;
-          border-radius: 8px;
-          font-size: 15px;
-          font-weight: 600;
-          cursor: pointer;
-          box-shadow: 0 2px 12px rgba(102,126,234,0.4);
-          transition: all 0.2s ease;
-        ">📊 Analyze Page</button>
-      </div>
-
-      <hr style="border: none; border-top: 1px solid #e0e0e0; margin: 20px 0;">
-
-      <div style="padding: 0 0 20px 0;">
-        <div style="font-size: 16px; font-weight: 600; margin-bottom: 12px; color: #333;">✨ Build Your Deck</div>
-        <button id="rl-selection-mode-btn" style="
-          width: 100%;
-          background: ${selectionModeActive ? '#4CAF50' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'};
-          color: white;
-          border: none;
-          padding: 14px;
-          border-radius: 8px;
-          font-size: 14px;
-          font-weight: 600;
-          cursor: pointer;
-          transition: all 0.2s ease;
-          margin-bottom: 8px;
-        ">${selectionModeActive ? '✓ Selection Mode Active' : '📝 Add Words to Deck'}</button>
-        <div style="font-size: 12px; color: #888; text-align: center;">Select words on the page to add to your deck</div>
-      </div>
-
-      <hr style="border: none; border-top: 1px solid #e0e0e0; margin: 20px 0;">
-
-      <div style="padding: 0 0 20px 0;">
-        <div style="font-size: 16px; font-weight: 600; margin-bottom: 12px; color: #333;">🗂️ My Deck</div>
-        <button id="rl-view-deck-btn" style="
-          width: 100%;
-          background: white;
-          color: #333;
-          border: 1px solid #ddd;
-          padding: 12px;
-          border-radius: 8px;
-          font-size: 14px;
-          cursor: pointer;
-          transition: all 0.2s ease;
-        ">View Deck</button>
-      </div>
-    `;
-  }
-
-  function renderAnalysisView() {
-    const vocab = currentAnalysis.vocabulary_examples || [];
-    const grammar = currentAnalysis.grammar_features || [];
-
-    // Sanitize API response data to prevent XSS
-    const safeCefrLevel = sanitizeForDisplay(currentAnalysis.cefr_level);
-    const safeConfidence = sanitizeForDisplay(currentAnalysis.confidence);
-    const safeReasoning = sanitizeForDisplay(currentAnalysis.reasoning);
-
-    return `
-      ${renderLanguageSelector()}
-      <div style="margin-bottom: 24px;">
-        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
-          <div style="font-size: 36px; font-weight: 900; color: ${getCefrColor(currentAnalysis.cefr_level)};">${safeCefrLevel}</div>
-          <div>
-            <div style="font-size: 11px; text-transform: uppercase; color: #888; letter-spacing: 1px;">CEFR Level</div>
-            <div style="font-size: 13px; color: #666;">${safeConfidence} confidence</div>
-          </div>
-        </div>
-        ${currentAnalysis.cached ? '<div style="font-size: 12px; color: #4CAF50; margin-top: 8px;">💾 Loaded from cache (FREE!)</div>' : ''}
-      </div>
-
-      <div style="background: #f5f5f5; padding: 16px; border-radius: 8px; margin-bottom: 20px;">
-        <div style="font-size: 14px; font-weight: 600; color: #333; margin-bottom: 8px;">💡 Reasoning</div>
-        <div style="font-size: 13px; color: #666; line-height: 1.6;">${safeReasoning}</div>
-      </div>
-
-      <div style="margin-bottom: 20px;">
-        <div style="font-size: 14px; font-weight: 600; color: #333; margin-bottom: 8px;">📚 Key Vocabulary (${vocab.length})</div>
-        <div style="display: flex; flex-wrap: wrap; gap: 6px;">
-          ${vocab.map(word => `<span style="background: #e8eaf6; color: #3f51b5; padding: 6px 12px; border-radius: 16px; font-size: 12px;">${sanitizeForDisplay(word)}</span>`).join('')}
-        </div>
-      </div>
-
-      <div style="margin-bottom: 24px;">
-        <div style="font-size: 14px; font-weight: 600; color: #333; margin-bottom: 8px;">🎯 Grammar Features (${grammar.length})</div>
-        <div style="display: flex; flex-wrap: wrap; gap: 6px;">
-          ${grammar.map(feature => `<span style="background: #fff3e0; color: #f57c00; padding: 6px 12px; border-radius: 16px; font-size: 12px;">${sanitizeForDisplay(feature)}</span>`).join('')}
-        </div>
-      </div>
-
-      <hr style="border: none; border-top: 1px solid #e0e0e0; margin: 20px 0;">
-
-      <div style="margin-bottom: 20px;">
-        <div style="font-size: 14px; font-weight: 600; color: #333; margin-bottom: 12px;">✨ Build Your Deck</div>
-        <button id="rl-selection-mode-btn" style="
-          width: 100%;
-          background: ${selectionModeActive ? '#4CAF50' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'};
-          color: white;
-          border: none;
-          padding: 14px;
-          border-radius: 8px;
-          font-size: 14px;
-          font-weight: 600;
-          cursor: pointer;
-          transition: all 0.2s ease;
-        ">${selectionModeActive ? '✓ Selection Mode Active' : '🎯 Enable Selection Mode'}</button>
-        <div style="font-size: 12px; color: #888; margin-top: 8px; text-align: center;">Select words on the page to add to your deck</div>
-      </div>
-
-      <div>
-        <button id="rl-view-deck-btn" style="
-          width: 100%;
-          background: white;
-          color: #333;
-          border: 1px solid #ddd;
-          padding: 12px;
-          border-radius: 8px;
-          font-size: 14px;
-          cursor: pointer;
-          transition: all 0.2s ease;
-        ">🗂️ View My Deck</button>
-      </div>
-
-      <hr style="border: none; border-top: 1px solid #e0e0e0; margin: 20px 0;">
-
-      <div style="margin-bottom: 20px;">
-        <div style="font-size: 14px; font-weight: 600; color: #333; margin-bottom: 12px;">📝 Test Comprehension</div>
-
-        <select id="rl-question-level" style="
-          width: 100%;
-          padding: 10px;
-          border: 1px solid #ddd;
-          border-radius: 6px;
-          margin-bottom: 8px;
-          font-size: 13px;
-          background: white;
-        ">
-          <optgroup label="DELF">
-            <option value="A1">DELF A1 - Beginner</option>
-            <option value="A2">DELF A2 - Elementary</option>
-            <option value="B1">DELF B1 - Intermediate</option>
-            <option value="B2">DELF B2 - Upper Intermediate</option>
-          </optgroup>
-          <optgroup label="DALF">
-            <option value="C1">DALF C1 - Advanced</option>
-            <option value="C2">DALF C2 - Proficient</option>
-          </optgroup>
-        </select>
-
-        <button id="rl-generate-questions-btn" style="
-          width: 100%;
-          background: linear-gradient(135deg, #FF9800 0%, #F57C00 100%);
-          color: white;
-          border: none;
-          padding: 12px;
-          border-radius: 8px;
-          font-size: 14px;
-          font-weight: 600;
-          cursor: pointer;
-          box-shadow: 0 2px 12px rgba(255,152,0,0.4);
-          transition: all 0.2s ease;
-        ">🎯 Generate Questions</button>
-      </div>
-    `;
-  }
-
-  function getCefrColor(level) {
-    const colors = {
-      'A1': '#4CAF50',
-      'A2': '#8BC34A',
-      'B1': '#FFC107',
-      'B2': '#FF9800',
-      'C1': '#FF5722',
-      'C2': '#9C27B0'
-    };
-    return colors[level] || '#667eea';
-  }
-
-  function hideMenu() {
-    const menu = document.getElementById('rl-menu');
-    if (menu) {
-      menu.style.transform = 'translateY(-10px) scale(0.95)';
-      menu.style.opacity = '0';
-      setTimeout(() => menu.remove(), 250);
-    }
-    menuExpanded = false;
-
-    // Keep selection mode active when menu closes (state persists in localStorage)
-  }
-
-  function attachMenuListeners() {
-    const analyzeBtn = document.getElementById('rl-analyze-btn');
-    const viewDeckBtn = document.getElementById('rl-view-deck-btn');
-    const selectionModeBtn = document.getElementById('rl-selection-mode-btn');
-    const generateQuestionsBtn = document.getElementById('rl-generate-questions-btn');
-    const langSelect = document.getElementById('rl-language-select');
-
-    if (analyzeBtn) {
-      analyzeBtn.addEventListener('click', analyzeContent);
-    }
-
-    if (viewDeckBtn) {
-      viewDeckBtn.addEventListener('click', showDeck);
-    }
-
-    if (selectionModeBtn) {
-      selectionModeBtn.addEventListener('click', toggleSelectionMode);
-    }
-
-    if (generateQuestionsBtn) {
-      generateQuestionsBtn.addEventListener('click', generateQuestions);
-    }
-
-    // Language selector change handler
-    if (langSelect) {
-      langSelect.addEventListener('change', (e) => {
-        const value = e.target.value;
-        if (value === 'auto') {
-          manualLanguageOverride = null;
-          localStorage.removeItem('rl-language-override');
-          console.log('🌐 Language set to auto-detect');
-        } else {
-          manualLanguageOverride = value;
-          localStorage.setItem('rl-language-override', value);
-          console.log(`🌐 Language manually set to: ${SUPPORTED_LANGUAGES[value]} (${value})`);
-        }
-        // Re-analyze if content was already analyzed
-        if (currentAnalysis) {
-          analyzeContent();
-        }
-      });
-    }
-  }
+  const USER_ID = utils.getUserId();
 
   // ========================================
   // ARTICLE DETECTION
   // ========================================
+
   function detectArticle() {
-    let article = document.querySelector('article');
-    if (article && article.innerText.length > 500) {
-      return article;
-    }
-
-    article = document.querySelector('main');
-    if (article && article.innerText.length > 500) {
-      return article;
-    }
-
-    const selectors = [
-      '[role="main"]',
-      '.article',
-      '.post',
-      '.content',
-      '.entry-content',
-      '#article',
-      '#content'
-    ];
+    const selectors = ['article', 'main', '[role="main"]', '.article', '.post',
+                       '.content', '.entry-content', '#article', '#content'];
 
     for (const selector of selectors) {
-      const element = document.querySelector(selector);
-      if (element && element.innerText.length > 500) {
-        return element;
-      }
+      const el = document.querySelector(selector);
+      if (el && el.innerText.length > 500) return el;
     }
 
-    const divs = Array.from(document.querySelectorAll('div'));
-    divs.sort((a, b) => b.innerText.length - a.innerText.length);
-
-    for (const div of divs) {
-      if (div.innerText.length > 1000) {
-        return div;
-      }
-    }
-
-    return null;
+    // Fallback: largest div
+    const divs = Array.from(document.querySelectorAll('div'))
+      .sort((a, b) => b.innerText.length - a.innerText.length);
+    return divs.find(d => d.innerText.length > 1000) || null;
   }
 
   // ========================================
-  // PDF DETECTION AND EXTRACTION
+  // CORE ACTIONS
   // ========================================
 
-  // Maximum number of PDF pages to extract text from
-  const MAX_PDF_PAGES = 50;
+  async function analyzeContent() {
+    const isPdf = pdf.isPdfContext();
+    ui.showBanner(isPdf ? '📄 Extracting PDF...' : '🔄 Detecting article...', 'loading');
 
-  // PDF.js library reference (lazy loaded)
-  let pdfjsLib = null;
-
-  /**
-   * Check if the current page is a PDF context
-   * @returns {boolean} True if the page is displaying a PDF
-   */
-  function isPdfContext() {
-    // Check if URL ends with .pdf
-    const url = window.location.href.toLowerCase();
-    if (url.endsWith('.pdf') || url.includes('.pdf?') || url.includes('.pdf#')) {
-      return true;
-    }
-
-    // Check for PDF embed elements
-    const pdfEmbed = document.querySelector('embed[type="application/pdf"]');
-    if (pdfEmbed) {
-      return true;
-    }
-
-    // Check for Chrome's built-in PDF viewer
-    // Chrome renders PDFs in a special viewer with specific elements
-    const chromeViewer = document.querySelector('embed[name="plugin"]');
-    if (chromeViewer && chromeViewer.type === 'application/pdf') {
-      return true;
-    }
-
-    // Check for PDF.js viewer (used by some sites)
-    if (document.getElementById('viewer') && document.querySelector('.page[data-page-number]')) {
-      return true;
-    }
-
-    return false;
-  }
-
-  /**
-   * Load PDF.js library dynamically
-   * @returns {Promise<object>} The PDF.js library object
-   */
-  async function loadPdfJs() {
-    if (pdfjsLib) {
-      return pdfjsLib;
-    }
-
-    try {
-      // Import PDF.js dynamically from extension resources
-      const pdfJsUrl = chrome.runtime.getURL('lib/pdf.min.mjs');
-      const module = await import(pdfJsUrl);
-      pdfjsLib = module;
-
-      // Configure the worker path
-      const workerUrl = chrome.runtime.getURL('lib/pdf.worker.min.mjs');
-      pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
-
-      console.log('📄 PDF.js loaded successfully');
-      return pdfjsLib;
-    } catch (error) {
-      console.error('📄 Failed to load PDF.js:', error);
-      throw new Error('Could not load PDF library');
-    }
-  }
-
-  /**
-   * Extract text content from a PDF document
-   * @param {string} url - URL of the PDF to extract text from
-   * @returns {Promise<string|null>} Extracted text or null on failure
-   */
-  async function extractPdfText(url) {
-    try {
-      console.log('📄 Extracting text from PDF:', url);
-
-      // Load PDF.js if not already loaded
-      const pdfjs = await loadPdfJs();
-
-      // Load the PDF document
-      const loadingTask = pdfjs.getDocument({
-        url: url,
-        // Disable range requests for better compatibility
-        disableRange: false,
-        disableStream: false,
-      });
-
-      const pdf = await loadingTask.promise;
-      const numPages = Math.min(pdf.numPages, MAX_PDF_PAGES);
-
-      console.log(`📄 PDF has ${pdf.numPages} pages, extracting ${numPages}`);
-
-      // Extract text from each page
-      const textParts = [];
-      for (let pageNum = 1; pageNum <= numPages; pageNum++) {
-        try {
-          const page = await pdf.getPage(pageNum);
-          const textContent = await page.getTextContent();
-
-          // Join text items with spaces, preserving some structure
-          const pageText = textContent.items
-            .map(item => item.str)
-            .join(' ')
-            .replace(/\s+/g, ' ')
-            .trim();
-
-          if (pageText) {
-            textParts.push(pageText);
-          }
-        } catch (pageError) {
-          console.warn(`📄 Could not extract text from page ${pageNum}:`, pageError);
-        }
-      }
-
-      const fullText = textParts.join('\n\n');
-
-      if (!fullText || fullText.trim().length < 50) {
-        console.warn('📄 PDF appears to have no extractable text (possibly scanned/image-only)');
-        return null;
-      }
-
-      console.log(`📄 Extracted ${fullText.length} characters from ${textParts.length} pages`);
-
-      // Add note if we truncated pages
-      if (pdf.numPages > MAX_PDF_PAGES) {
-        return fullText + `\n\n[Note: Text extracted from first ${MAX_PDF_PAGES} of ${pdf.numPages} pages]`;
-      }
-
-      return fullText;
-
-    } catch (error) {
-      console.error('📄 PDF extraction error:', error);
-
-      // Provide helpful error messages
-      if (error.message && error.message.includes('password')) {
-        console.warn('📄 PDF is password protected');
-        return null;
-      }
-
-      if (error.name === 'MissingPDFException') {
-        console.warn('📄 PDF file not found or inaccessible');
-        return null;
-      }
-
-      // CORS or network errors
-      if (error.message && (error.message.includes('fetch') || error.message.includes('network'))) {
-        console.warn('📄 Could not access PDF (CORS or network restriction)');
-        return null;
-      }
-
-      return null;
-    }
-  }
-
-  /**
-   * Detect the language of text using Chrome's built-in language detection API
-   * @param {string} text - Text to analyze
-   * @returns {Promise<{code: string, name: string, confidence: number, isReliable: boolean}|null>}
-   */
-  async function detectLanguage(text) {
-    return new Promise((resolve) => {
-      chrome.i18n.detectLanguage(text, (result) => {
-        if (result && result.languages && result.languages.length > 0) {
-          const detected = result.languages[0];
-          // Handle region codes like 'pt-BR' -> 'pt'
-          const langCode = detected.language.toLowerCase().split('-')[0];
-          if (SUPPORTED_LANGUAGES[langCode]) {
-            resolve({
-              code: langCode,
-              name: SUPPORTED_LANGUAGES[langCode],
-              confidence: detected.percentage,
-              isReliable: result.isReliable
-            });
-            return;
-          }
-        }
-        resolve(null); // Unsupported or undetected
-      });
-    });
-  }
-
-  /**
-   * Get the effective language code for API calls
-   * Respects manual override, falls back to detected, then French as default
-   * @returns {string} ISO 639-1 language code
-   */
-  function getEffectiveLanguage() {
-    if (manualLanguageOverride && SUPPORTED_LANGUAGES[manualLanguageOverride]) {
-      return manualLanguageOverride;
-    }
-    return currentLanguage ? currentLanguage.code : 'fr'; // fallback to French
-  }
-
-  /**
-   * Get the effective language name for display
-   * @returns {string} Full language name
-   */
-  function getEffectiveLanguageName() {
-    const code = getEffectiveLanguage();
-    return SUPPORTED_LANGUAGES[code] || 'French';
-  }
-
-  // ========================================
-  // ANALYZE ARTICLE
-  // ========================================
-  async function analyzeArticle() {
-    try {
-      showBanner('🔄 Detecting article...', 'loading');
-
-      const articleElement = detectArticle();
-      if (!articleElement) {
-        showBanner('❌ Could not detect article content', 'error');
+    let text;
+    if (isPdf) {
+      text = await pdf.extractPdfText(window.location.href);
+      if (!text || text.length < 100) {
+        ui.showBanner('❌ Could not extract PDF text', 'error');
         return;
       }
-
-      currentArticleElement = articleElement;
-      const text = articleElement.innerText;
-      console.log(`Found article with ${text.length} characters`);
-
-      // Check for manual language override first
-      let effectiveLangCode;
-      let effectiveLangName;
-
-      if (manualLanguageOverride && SUPPORTED_LANGUAGES[manualLanguageOverride]) {
-        // Use manual override
-        effectiveLangCode = manualLanguageOverride;
-        effectiveLangName = SUPPORTED_LANGUAGES[manualLanguageOverride];
-        console.log(`Using manual language override: ${effectiveLangName} (${effectiveLangCode})`);
-
-        // Still detect for display purposes but don't use it
-        const detected = await detectLanguage(text);
-        currentLanguage = detected; // Store for display in selector
-      } else {
-        // Detect language using Chrome's built-in API
-        showBanner('🔄 Detecting language...', 'loading');
-        const detected = await detectLanguage(text);
-
-        if (!detected) {
-          showBanner('❌ Unsupported language detected. Supported: EU languages (French, Spanish, German, etc.)', 'error');
-          return;
-        }
-
-        currentLanguage = detected;
-        effectiveLangCode = detected.code;
-        effectiveLangName = detected.name;
-        console.log(`Detected language: ${detected.name} (${detected.code}) with ${detected.confidence}% confidence`);
-      }
-
-      showBanner(`🔄 Analyzing ${effectiveLangName} level... (this may take 5-10 seconds)`, 'loading');
-
-      const response = await apiFetch('/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text,
-          url: window.location.href,
-          language: effectiveLangCode
-        })
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        showBanner(`❌ Analysis failed: ${error.error}`, 'error');
-        return;
-      }
-
-      const result = await response.json();
-      console.log('✅ CEFR Analysis:', result);
-
-      currentAnalysis = result;
-
-      // Remove banner
-      const banner = document.getElementById('rl-banner');
-      if (banner) banner.remove();
-
-      // Update menu
-      updateMenuContent();
-
-      showBanner(`✅ Analysis complete: ${result.cefr_level} level${result.cached ? ' (cached)' : ''}`, 'success');
-
-    } catch (error) {
-      console.error('Analysis error:', error);
-      showBanner(`❌ Error: ${error.message}. Make sure backend is running.`, 'error');
-    }
-  }
-
-  // ========================================
-  // ANALYZE PDF
-  // ========================================
-  async function analyzePdf() {
-    try {
-      showBanner('📄 Extracting PDF text...', 'loading');
-
-      const text = await extractPdfText(window.location.href);
-
-      if (!text || text.trim().length < 100) {
-        showBanner('❌ Could not extract text. PDF may be scanned/image-only.', 'error');
-        return;
-      }
-
-      console.log(`📄 Extracted ${text.length} characters from PDF`);
-
-      // Check for manual language override first
-      let effectiveLangCode;
-      let effectiveLangName;
-
-      if (manualLanguageOverride && SUPPORTED_LANGUAGES[manualLanguageOverride]) {
-        // Use manual override
-        effectiveLangCode = manualLanguageOverride;
-        effectiveLangName = SUPPORTED_LANGUAGES[manualLanguageOverride];
-        console.log(`Using manual language override: ${effectiveLangName} (${effectiveLangCode})`);
-
-        // Still detect for display purposes but don't use it
-        const detected = await detectLanguage(text.substring(0, 5000)); // Use sample for detection
-        currentLanguage = detected;
-      } else {
-        // Detect language using Chrome's built-in API
-        showBanner('📄 Detecting language...', 'loading');
-        const detected = await detectLanguage(text.substring(0, 5000)); // Use sample for detection
-
-        if (!detected) {
-          showBanner('❌ Unsupported language detected. Supported: EU languages (French, Spanish, German, etc.)', 'error');
-          return;
-        }
-
-        currentLanguage = detected;
-        effectiveLangCode = detected.code;
-        effectiveLangName = detected.name;
-        console.log(`📄 Detected language: ${detected.name} (${detected.code}) with ${detected.confidence}% confidence`);
-      }
-
-      showBanner(`📄 Analyzing ${effectiveLangName} PDF... (this may take 5-10 seconds)`, 'loading');
-
-      const response = await apiFetch('/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text,
-          url: window.location.href,
-          language: effectiveLangCode
-        })
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        showBanner(`❌ Analysis failed: ${error.error}`, 'error');
-        return;
-      }
-
-      const result = await response.json();
-      console.log('✅ PDF CEFR Analysis:', result);
-
-      currentAnalysis = result;
-
-      // Remove banner
-      const banner = document.getElementById('rl-banner');
-      if (banner) banner.remove();
-
-      // Update menu
-      updateMenuContent();
-
-      showBanner(`✅ PDF analysis complete: ${result.cefr_level} level${result.cached ? ' (cached)' : ''}`, 'success');
-
-    } catch (error) {
-      console.error('📄 PDF analysis error:', error);
-
-      // Provide helpful error messages
-      if (error.message && error.message.includes('CORS')) {
-        showBanner('❌ Cannot access this PDF due to security restrictions.', 'error');
-      } else if (error.message && error.message.includes('password')) {
-        showBanner('❌ This PDF is password protected.', 'error');
-      } else {
-        showBanner(`❌ PDF error: ${error.message}. Make sure backend is running.`, 'error');
-      }
-    }
-  }
-
-  /**
-   * Smart analyze function that detects content type and calls appropriate analyzer
-   */
-  function analyzeContent() {
-    if (isPdfContext()) {
-      console.log('📄 PDF context detected, using PDF analyzer');
-      analyzePdf();
     } else {
-      console.log('📰 Article context detected, using article analyzer');
-      analyzeArticle();
+      const article = detectArticle();
+      if (!article) {
+        ui.showBanner('❌ Could not detect article', 'error');
+        return;
+      }
+      state.currentArticleElement = article;
+      text = article.innerText;
+    }
+
+    // Detect language if not manually set
+    if (!language.getManualOverride()) {
+      ui.showBanner('🔄 Detecting language...', 'loading');
+      const detected = await language.detectLanguage(text.substring(0, 5000));
+      if (detected) {
+        language.setCurrentLanguage(detected);
+      } else {
+        ui.showBanner('❌ Unsupported language', 'error');
+        return;
+      }
+    }
+
+    const langCode = language.getEffectiveLanguage();
+    const langName = language.getEffectiveLanguageName();
+    ui.showBanner(`🔄 Analyzing ${langName}...`, 'loading');
+
+    try {
+      const result = await api.analyzeText(text, langCode, window.location.href);
+      state.currentAnalysis = result;
+      ui.removeBanner();
+      updateMenu();
+      ui.showBanner(`✅ ${result.cefr_level} level${result.cached ? ' (cached)' : ''}`, 'success');
+    } catch (error) {
+      ui.showBanner(`❌ ${error.message}`, 'error');
     }
   }
 
-  function updateMenuContent() {
-    const menuContent = document.getElementById('rl-menu-content');
-    if (menuContent) {
-      menuContent.innerHTML = renderAnalysisView();
-      attachMenuListeners();
-    }
-  }
-
-  // ========================================
-  // SELECTION MODE
-  // ========================================
-  function toggleSelectionMode() {
-    selectionModeActive = !selectionModeActive;
-
-    // Save to localStorage
-    localStorage.setItem('rl-selection-mode', selectionModeActive.toString());
-    console.log(`💾 Saved selection mode state: ${selectionModeActive}`);
-
-    if (selectionModeActive) {
-      enableSelectionMode();
-    } else {
-      disableSelectionMode();
-    }
-
-    updateMenuContent();
-  }
-
-  function enableSelectionMode() {
-    console.log('✨ Selection mode enabled');
-
-    // Add overlay
-    const overlay = document.createElement('div');
-    overlay.id = 'rl-selection-overlay';
-    overlay.style.cssText = `
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 380px;
-      bottom: 0;
-      background: rgba(0, 0, 0, 0.02);
-      z-index: 999997;
-      pointer-events: none;
-    `;
-    document.body.appendChild(overlay);
-
-    // Add instruction banner
-    showBanner('✨ Select any word or phrase to add to your deck', 'info', false);
-
-    // Listen for text selection
-    document.addEventListener('mouseup', handleTextSelection);
-  }
-
-  function disableSelectionMode() {
-    console.log('Selection mode disabled');
-
-    const overlay = document.getElementById('rl-selection-overlay');
-    if (overlay) overlay.remove();
-
-    const popup = document.getElementById('rl-selection-popup');
-    if (popup) popup.remove();
-
-    document.removeEventListener('mouseup', handleTextSelection);
-  }
-
-  function handleTextSelection(e) {
-    if (!selectionModeActive) return;
-
+  async function handleWordSelection(word, x, y) {
     const selection = window.getSelection();
-    const selectedText = selection.toString().trim();
+    const context = selection.rangeCount > 0
+      ? selection.getRangeAt(0).startContainer.parentElement?.innerText?.substring(0, 200) || ''
+      : '';
 
-    if (!selectedText || selectedText.length === 0) {
-      const popup = document.getElementById('rl-selection-popup');
-      if (popup) popup.remove();
-      return;
-    }
+    const popup = ui.createSelectionPopup(word, x, y, {
+      onGetMeaning: async () => {
+        try {
+          const result = await api.defineWord(word, context, language.getEffectiveLanguage());
+          highlightWord(word, result.translation);
+          return result;
+        } catch (error) {
+          throw error;
+        }
+      },
+      onAddToDeck: async (meaning) => {
+        try {
+          let definition = meaning;
+          if (!definition) {
+            definition = await api.defineWord(word, context, language.getEffectiveLanguage());
+          }
 
-    // Don't show popup if clicked inside menu or popup
-    if (e.target.closest('#rl-menu') || e.target.closest('#rl-selection-popup')) {
-      return;
-    }
+          await api.addToDeckApi({
+            userId: USER_ID,
+            word,
+            phrase: word.split(/\s+/).length > 1 ? word : null,
+            contextSentence: context.substring(0, 300),
+            translation: definition.translation,
+            definition: definition.definition,
+            cefrLevel: definition.cefr,
+            language: language.getEffectiveLanguage(),
+            sourceUrl: window.location.href,
+            sourceTitle: document.title,
+            tags: []
+          });
 
-    showSelectionPopup(selectedText, e.pageX, e.pageY);
-  }
-
-  function showSelectionPopup(text, x, y) {
-    const existingPopup = document.getElementById('rl-selection-popup');
-    if (existingPopup) existingPopup.remove();
-
-    const popup = document.createElement('div');
-    popup.id = 'rl-selection-popup';
-    popup.style.cssText = `
-      position: absolute;
-      left: ${x}px;
-      top: ${y + 10}px;
-      background: white;
-      border-radius: 8px;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.2);
-      padding: 12px 16px;
-      z-index: 999999;
-      font-family: 'SF Pro Display', -apple-system, sans-serif;
-      min-width: 220px;
-      max-width: 300px;
-    `;
-
-    // Sanitize user-selected text to prevent XSS
-    const displayText = sanitizeForDisplay(text.substring(0, 30)) + (text.length > 30 ? '...' : '');
-
-    // Build popup using safe DOM methods for dynamic content
-    const titleDiv = document.createElement('div');
-    titleDiv.style.cssText = 'font-size: 14px; font-weight: 600; margin-bottom: 8px; color: #333;';
-    titleDiv.textContent = `"${text.substring(0, 30)}${text.length > 30 ? '...' : ''}"`;
-
-    const meaningDiv = document.createElement('div');
-    meaningDiv.id = 'rl-popup-meaning';
-    meaningDiv.style.cssText = 'display: none; background: #f5f5f5; padding: 8px; border-radius: 6px; margin-bottom: 8px; font-size: 12px; color: #333;';
-
-    const getMeaningBtn = document.createElement('button');
-    getMeaningBtn.id = 'rl-get-meaning-btn';
-    getMeaningBtn.style.cssText = `
-      width: 100%;
-      background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
-      color: white;
-      border: none;
-      padding: 8px 16px;
-      border-radius: 6px;
-      font-size: 13px;
-      font-weight: 600;
-      cursor: pointer;
-      margin-bottom: 6px;
-    `;
-    getMeaningBtn.textContent = '🔍 Get Meaning';
-
-    const addToDeckBtn = document.createElement('button');
-    addToDeckBtn.id = 'rl-add-to-deck-popup-btn';
-    addToDeckBtn.style.cssText = `
-      width: 100%;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-      border: none;
-      padding: 8px 16px;
-      border-radius: 6px;
-      font-size: 13px;
-      font-weight: 600;
-      cursor: pointer;
-      margin-bottom: 6px;
-    `;
-    addToDeckBtn.textContent = '+ Add to Deck';
-
-    const cancelBtn = document.createElement('button');
-    cancelBtn.id = 'rl-cancel-popup-btn';
-    cancelBtn.style.cssText = `
-      width: 100%;
-      background: #f5f5f5;
-      color: #666;
-      border: none;
-      padding: 8px 16px;
-      border-radius: 6px;
-      font-size: 13px;
-      cursor: pointer;
-    `;
-    cancelBtn.textContent = 'Cancel';
-
-    popup.appendChild(titleDiv);
-    popup.appendChild(meaningDiv);
-    popup.appendChild(getMeaningBtn);
-    popup.appendChild(addToDeckBtn);
-    popup.appendChild(cancelBtn);
+          ui.showBanner(`✅ Added "${word}" to deck!`, 'success');
+          if (definition.translation) {
+            highlightWord(word, definition.translation);
+          }
+        } catch (error) {
+          ui.showBanner(`❌ ${error.message}`, 'error');
+        }
+      }
+    });
 
     document.body.appendChild(popup);
-
-    let currentMeaning = null;
-
-    document.getElementById('rl-get-meaning-btn').addEventListener('click', async () => {
-      const meaningBtn = document.getElementById('rl-get-meaning-btn');
-      const meaningDiv = document.getElementById('rl-popup-meaning');
-
-      meaningBtn.textContent = '🔄 Loading...';
-      meaningBtn.disabled = true;
-
-      try {
-        const selection = window.getSelection();
-        const range = selection.getRangeAt(0);
-        const sentence = range.startContainer.parentElement?.innerText || '';
-
-        const response = await apiFetch('/define', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            word: text,
-            context: sentence.substring(0, 200),
-            language: getEffectiveLanguage()
-          })
-        });
-
-        if (!response.ok) throw new Error('Failed to get meaning');
-
-        const result = await response.json();
-        currentMeaning = result;
-
-        console.log('📥 Received definition result:', { word: text, cached: result.cached, translation: result.translation });
-
-        // Safely display API response - sanitize to prevent XSS
-        meaningDiv.textContent = ''; // Clear previous content
-        const translationEl = document.createElement('strong');
-        translationEl.textContent = result.translation || '';
-        const definitionEl = document.createElement('small');
-        definitionEl.textContent = result.definition || '';
-        meaningDiv.appendChild(translationEl);
-        meaningDiv.appendChild(document.createElement('br'));
-        meaningDiv.appendChild(definitionEl);
-        meaningDiv.style.display = 'block';
-        meaningBtn.style.display = 'none';
-
-        // Create persistent tooltip on the page
-        console.log('🔧 Calling createPersistentTooltip for:', text);
-        createPersistentTooltip(text, result.translation);
-
-      } catch (error) {
-        // Safely display error - sanitize error message to prevent XSS
-        meaningDiv.textContent = ''; // Clear previous content
-        const errorSpan = document.createElement('span');
-        errorSpan.style.color = '#f44336';
-        errorSpan.textContent = `Error: ${error.message || 'Unknown error'}`;
-        meaningDiv.appendChild(errorSpan);
-        meaningDiv.style.display = 'block';
-        meaningBtn.textContent = '🔍 Get Meaning';
-        meaningBtn.disabled = false;
-      }
-    });
-
-    document.getElementById('rl-add-to-deck-popup-btn').addEventListener('click', () => {
-      addToDeck(text, currentMeaning);
-      popup.remove();
-    });
-
-    document.getElementById('rl-cancel-popup-btn').addEventListener('click', () => {
-      popup.remove();
-    });
   }
 
-  // ========================================
-  // ADD TO DECK
-  // ========================================
-  async function addToDeck(word, existingMeaning = null) {
-    try {
-      showBanner('🔄 Adding to deck...', 'loading');
+  function highlightWord(word, translation) {
+    const normalized = word.toLowerCase().trim();
+    if (state.persistentTooltips[normalized]) return;
+    state.persistentTooltips[normalized] = translation;
 
-      // Get context sentence
-      const selection = window.getSelection();
-      const range = selection.getRangeAt(0);
-      const sentence = range.startContainer.parentElement?.innerText || '';
-
-      let definition = existingMeaning;
-
-      // Get definition from backend if not already fetched
-      if (!definition) {
-        const defResponse = await apiFetch('/define', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            word,
-            context: sentence.substring(0, 200),
-            language: getEffectiveLanguage()
-          })
-        });
-
-        if (!defResponse.ok) {
-          throw new Error('Failed to get definition');
+    const root = state.currentArticleElement || document.body;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode: (node) => {
+        const parent = node.parentElement;
+        if (parent.classList.contains('rl-highlighted-word') ||
+            parent.tagName === 'SCRIPT' || parent.tagName === 'STYLE' ||
+            parent.closest('#rl-menu, #rl-button, #rl-selection-popup')) {
+          return NodeFilter.FILTER_REJECT;
         }
-
-        definition = await defResponse.json();
+        return NodeFilter.FILTER_ACCEPT;
       }
+    });
 
-      // Add to deck
-      const addResponse = await apiFetch('/deck/add', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: USER_ID,
-          word: word,
-          phrase: word.split(/\s+/).length > 1 ? word : null,
-          contextSentence: sentence.substring(0, 300),
-          translation: definition.translation,
-          definition: definition.definition,
-          cefrLevel: definition.cefr,
-          language: getEffectiveLanguage(),
-          sourceUrl: window.location.href,
-          sourceTitle: document.title,
-          tags: []
-        })
+    const pattern = new RegExp(`\\b(${utils.escapeRegExp(word)})\\b`, 'gi');
+    const nodes = [];
+    let node;
+    while (node = walker.nextNode()) {
+      if (pattern.test(node.textContent)) nodes.push(node);
+    }
+
+    nodes.forEach(textNode => {
+      const parts = textNode.textContent.split(pattern);
+      const fragment = document.createDocumentFragment();
+
+      parts.forEach(part => {
+        if (!part) return;
+        if (pattern.test(part)) {
+          const span = ui.createHighlightedWord(part, translation);
+          fragment.appendChild(span);
+          pattern.lastIndex = 0;
+        } else {
+          fragment.appendChild(document.createTextNode(part));
+        }
       });
 
-      if (!addResponse.ok) {
-        throw new Error('Failed to add to deck');
-      }
-
-      console.log(`✅ Added "${word}" to deck`);
-      showBanner(`✅ Added "${word}" to deck!${definition.cached ? ' (definition cached)' : ''}`, 'success');
-
-      // Create persistent tooltip on the page if not already created
-      if (definition.translation) {
-        createPersistentTooltip(word, definition.translation);
-      }
-
-    } catch (error) {
-      console.error('Error adding to deck:', error);
-      showBanner(`❌ Failed to add to deck: ${error.message}`, 'error');
-    }
+      textNode.parentElement.replaceChild(fragment, textNode);
+    });
   }
 
   // ========================================
-  // VIEW DECK
+  // MENU MANAGEMENT
   // ========================================
+
+  function updateMenu() {
+    const content = document.getElementById('rl-menu-content');
+    if (!content) return;
+
+    // Note: renderAnalysisView and renderInitialView use sanitizeForDisplay
+    // for all dynamic content before setting innerHTML
+    if (state.currentAnalysis) {
+      content.innerHTML = ui.renderAnalysisView(state.currentAnalysis, state.selectionModeActive);
+    } else {
+      content.innerHTML = ui.renderInitialView(state.selectionModeActive);
+    }
+    attachMenuListeners();
+  }
+
+  function attachMenuListeners() {
+    document.getElementById('rl-analyze-btn')?.addEventListener('click', analyzeContent);
+    document.getElementById('rl-view-deck-btn')?.addEventListener('click', showDeck);
+    document.getElementById('rl-selection-mode-btn')?.addEventListener('click', toggleSelectionMode);
+    document.getElementById('rl-generate-questions-btn')?.addEventListener('click', generateQuestions);
+
+    const langSelect = document.getElementById('rl-language-select');
+    if (langSelect) {
+      langSelect.addEventListener('change', (e) => {
+        language.setManualOverride(e.target.value);
+        if (state.currentAnalysis) analyzeContent();
+      });
+    }
+  }
+
+  function toggleSelectionMode() {
+    state.selectionModeActive = !state.selectionModeActive;
+    localStorage.setItem('rl-selection-mode', state.selectionModeActive.toString());
+
+    if (state.selectionModeActive) {
+      ui.showBanner('✨ Select words to add to deck', 'info', false);
+      document.addEventListener('mouseup', onTextSelection);
+    } else {
+      document.removeEventListener('mouseup', onTextSelection);
+      document.getElementById('rl-selection-popup')?.remove();
+    }
+    updateMenu();
+  }
+
+  function onTextSelection(e) {
+    if (!state.selectionModeActive) return;
+    if (e.target.closest('#rl-menu, #rl-selection-popup')) return;
+
+    const text = window.getSelection().toString().trim();
+    document.getElementById('rl-selection-popup')?.remove();
+
+    if (text) handleWordSelection(text, e.pageX, e.pageY);
+  }
+
   async function showDeck() {
     try {
-      showBanner('🔄 Loading deck...', 'loading');
+      ui.showBanner('🔄 Loading deck...', 'loading');
+      const data = await api.fetchDeck(USER_ID);
+      ui.removeBanner();
 
-      const response = await apiFetch(`/deck/${USER_ID}`);
-      if (!response.ok) {
-        throw new Error('Failed to load deck');
+      const content = document.getElementById('rl-menu-content');
+      if (content) {
+        // Note: renderDeckView uses sanitizeForDisplay for all card data
+        content.innerHTML = ui.renderDeckView(data.cards, utils.getCefrColor);
+        attachDeckListeners(data.cards);
       }
-
-      const data = await response.json();
-      const cards = data.cards;
-
-      const banner = document.getElementById('rl-banner');
-      if (banner) banner.remove();
-
-      // Update menu with deck view
-      const menuContent = document.getElementById('rl-menu-content');
-      if (menuContent) {
-        menuContent.innerHTML = renderDeckView(cards);
-        attachDeckListeners(cards);
-      }
-
     } catch (error) {
-      console.error('Error loading deck:', error);
-      showBanner(`❌ Failed to load deck: ${error.message}`, 'error');
+      ui.showBanner(`❌ ${error.message}`, 'error');
     }
-  }
-
-  function renderDeckView(cards) {
-    if (cards.length === 0) {
-      return `
-        <div style="text-align: center; padding: 60px 20px;">
-          <div style="font-size: 64px; margin-bottom: 20px;">📭</div>
-          <div style="font-size: 18px; font-weight: 600; color: #333; margin-bottom: 8px;">Your deck is empty</div>
-          <div style="font-size: 14px; color: #888;">Analyze an article and start adding words!</div>
-          <button id="rl-back-to-analysis-btn" style="
-            margin-top: 24px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            padding: 12px 24px;
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-          ">Back to Analysis</button>
-        </div>
-      `;
-    }
-
-    return `
-      <div style="margin-bottom: 20px;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-          <div>
-            <div style="font-size: 20px; font-weight: 600; color: #333;">My Deck</div>
-            <div style="font-size: 13px; color: #888;">${cards.length} card${cards.length !== 1 ? 's' : ''}</div>
-          </div>
-          <button id="rl-back-to-analysis-btn" style="
-            background: #f5f5f5;
-            color: #666;
-            border: none;
-            padding: 8px 16px;
-            border-radius: 6px;
-            font-size: 13px;
-            cursor: pointer;
-          ">← Back</button>
-        </div>
-
-        <div style="display: flex; gap: 8px; margin-bottom: 20px;">
-          <button id="rl-export-json-btn" style="
-            flex: 1;
-            background: white;
-            color: #333;
-            border: 1px solid #ddd;
-            padding: 8px;
-            border-radius: 6px;
-            font-size: 12px;
-            cursor: pointer;
-          ">📥 JSON</button>
-          <button id="rl-export-csv-btn" style="
-            flex: 1;
-            background: white;
-            color: #333;
-            border: 1px solid #ddd;
-            padding: 8px;
-            border-radius: 6px;
-            font-size: 12px;
-            cursor: pointer;
-          ">📥 CSV</button>
-          <button id="rl-export-anki-btn" style="
-            flex: 1;
-            background: white;
-            color: #333;
-            border: 1px solid #ddd;
-            padding: 8px;
-            border-radius: 6px;
-            font-size: 12px;
-            cursor: pointer;
-          ">📥 Anki</button>
-        </div>
-      </div>
-
-      <div style="display: flex; flex-direction: column; gap: 12px;">
-        ${cards.map(card => {
-          // Sanitize all card data to prevent XSS
-          const safeWord = sanitizeForDisplay(card.word);
-          const safeCefrLevel = sanitizeForDisplay(card.cefr_level);
-          const safeDefinition = sanitizeForDisplay(card.definition || '');
-          const safeContext = sanitizeForDisplay(card.context_sentence?.substring(0, 100) || '');
-          return `
-          <div class="rl-deck-card" data-card-id="${card.id}" style="
-            background: white;
-            border: 1px solid #e0e0e0;
-            border-radius: 8px;
-            padding: 16px;
-            transition: all 0.2s ease;
-          ">
-            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
-              <div style="font-size: 16px; font-weight: 600; color: #333;">${safeWord}</div>
-              <span style="background: ${getCefrColor(card.cefr_level)}; color: white; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">${safeCefrLevel}</span>
-            </div>
-            <div style="font-size: 13px; color: #666; margin-bottom: 8px;">${safeDefinition}</div>
-            <div style="font-size: 12px; color: #888; font-style: italic; margin-bottom: 12px;">"${safeContext}..."</div>
-            <div style="display: flex; gap: 8px;">
-              <button class="rl-delete-card-btn" data-card-id="${card.id}" style="
-                flex: 1;
-                background: #ffebee;
-                color: #c62828;
-                border: none;
-                padding: 6px;
-                border-radius: 4px;
-                font-size: 12px;
-                cursor: pointer;
-              ">🗑️ Delete</button>
-            </div>
-          </div>
-        `}).join('')}
-      </div>
-    `;
   }
 
   function attachDeckListeners(cards) {
-    const backBtn = document.getElementById('rl-back-to-analysis-btn');
-    if (backBtn) {
-      backBtn.addEventListener('click', () => {
-        const menuContent = document.getElementById('rl-menu-content');
-        if (menuContent) {
-          menuContent.innerHTML = currentAnalysis ? renderAnalysisView() : renderInitialView();
-          attachMenuListeners();
-        }
-      });
-    }
-
-    // Export buttons
+    document.getElementById('rl-back-to-analysis-btn')?.addEventListener('click', updateMenu);
     document.getElementById('rl-export-json-btn')?.addEventListener('click', () => exportDeck('json'));
     document.getElementById('rl-export-csv-btn')?.addEventListener('click', () => exportDeck('csv'));
     document.getElementById('rl-export-anki-btn')?.addEventListener('click', () => exportDeck('anki'));
 
-    // Delete buttons
     document.querySelectorAll('.rl-delete-card-btn').forEach(btn => {
-      btn.addEventListener('click', async (e) => {
-        const cardId = e.target.dataset.cardId;
-        await deleteCard(cardId);
+      btn.addEventListener('click', async () => {
+        try {
+          await api.deleteCardApi(btn.dataset.cardId);
+          ui.showBanner('✅ Card deleted', 'success');
+          setTimeout(showDeck, 500);
+        } catch (error) {
+          ui.showBanner(`❌ ${error.message}`, 'error');
+        }
       });
     });
   }
 
-  async function deleteCard(cardId) {
-    try {
-      const response = await apiFetch(`/deck/${cardId}`, {
-        method: 'DELETE'
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to delete card');
-      }
-
-      console.log(`✅ Deleted card ${cardId}`);
-      showBanner('✅ Card deleted', 'success');
-
-      // Refresh deck view
-      setTimeout(() => showDeck(), 500);
-
-    } catch (error) {
-      console.error('Error deleting card:', error);
-      showBanner(`❌ Failed to delete card: ${error.message}`, 'error');
-    }
-  }
-
   async function exportDeck(format) {
     try {
-      showBanner(`🔄 Exporting as ${format.toUpperCase()}...`, 'loading');
+      ui.showBanner(`🔄 Exporting ${format.toUpperCase()}...`, 'loading');
+      const data = await api.exportDeckApi(USER_ID, format);
 
-      const response = await apiFetch(`/deck/${USER_ID}/export?format=${format}`);
-      if (!response.ok) {
-        throw new Error('Export failed');
-      }
+      const blob = format === 'json'
+        ? new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+        : new Blob([data], { type: 'text/csv' });
 
-      if (format === 'json') {
-        const data = await response.json();
-        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-        downloadBlob(blob, `deck-${USER_ID}.json`);
-      } else {
-        const csv = await response.text();
-        const blob = new Blob([csv], { type: 'text/csv' });
-        downloadBlob(blob, `deck-${USER_ID}${format === 'anki' ? '-anki' : ''}.csv`);
-      }
-
-      showBanner(`✅ Exported as ${format.toUpperCase()}!`, 'success');
-
+      utils.downloadBlob(blob, `deck-${USER_ID}${format === 'anki' ? '-anki' : ''}.${format === 'json' ? 'json' : 'csv'}`);
+      ui.showBanner(`✅ Exported!`, 'success');
     } catch (error) {
-      console.error('Export error:', error);
-      showBanner(`❌ Export failed: ${error.message}`, 'error');
+      ui.showBanner(`❌ ${error.message}`, 'error');
     }
   }
 
-  function downloadBlob(blob, filename) {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  // ========================================
-  // COMPREHENSION QUESTIONS
-  // ========================================
   async function generateQuestions() {
+    const levelSelect = document.getElementById('rl-question-level');
+    if (!levelSelect) return;
+
+    const level = levelSelect.value;
+    const examType = ['C1', 'C2'].includes(level) ? 'DALF' : 'DELF';
+
+    ui.showBanner('🔄 Generating questions...', 'loading');
+
+    const article = state.currentArticleElement || detectArticle();
+    if (!article) {
+      ui.showBanner('❌ No article detected', 'error');
+      return;
+    }
+
     try {
-      const levelSelect = document.getElementById('rl-question-level');
-      const level = levelSelect.value;
-      const examType = level === 'C1' || level === 'C2' ? 'DALF' : 'DELF';
+      const result = await api.generateQuestionsApi(article.innerText, window.location.href, level, examType);
+      state.currentQuestions = { ...result, level, examType };
+      state.currentQuestionIndex = 0;
+      state.userAnswers = {};
+      state.quizSubmitted = false;
 
-      showBanner('🔄 Generating comprehension questions... (this may take 5-10 seconds)', 'loading');
-
-      const articleElement = currentArticleElement || detectArticle();
-      if (!articleElement) {
-        showBanner('❌ Could not detect article content', 'error');
-        return;
-      }
-
-      const text = articleElement.innerText;
-
-      const response = await apiFetch('/questions/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text,
-          url: window.location.href,
-          level,
-          examType
-        })
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        showBanner(`❌ Failed to generate questions: ${error.error}`, 'error');
-        return;
-      }
-
-      const result = await response.json();
-      console.log('✅ Questions generated:', result);
-
-      currentQuestions = {
-        questions: result.questions,
-        questionSetId: result.questionSetId,
-        level,
-        examType,
-        cached: result.cached
-      };
-      currentQuestionIndex = 0;
-      userAnswers = {};
-      quizSubmitted = false;
-
-      // Remove banner
-      const banner = document.getElementById('rl-banner');
-      if (banner) banner.remove();
-
-      // Show questions view
+      ui.removeBanner();
       showQuestionsView();
-
-      showBanner(`✅ Generated 10 questions${result.cached ? ' (cached)' : ''}!`, 'success');
-
+      ui.showBanner(`✅ Generated ${result.questions.length} questions${result.cached ? ' (cached)' : ''}`, 'success');
     } catch (error) {
-      console.error('Error generating questions:', error);
-      showBanner(`❌ Error: ${error.message}. Make sure backend is running.`, 'error');
+      ui.showBanner(`❌ ${error.message}`, 'error');
     }
   }
 
   function showQuestionsView() {
-    const menuContent = document.getElementById('rl-menu-content');
-    if (menuContent) {
-      menuContent.innerHTML = renderQuestionsView();
-      attachQuestionListeners();
-    }
-  }
+    const content = document.getElementById('rl-menu-content');
+    if (!content || !state.currentQuestions) return;
 
-  function renderQuestionsView() {
-    if (!currentQuestions || !currentQuestions.questions) {
-      return '<div style="padding: 20px; text-align: center;">No questions available</div>';
-    }
-
-    const question = currentQuestions.questions[currentQuestionIndex];
-    const totalQuestions = currentQuestions.questions.length;
-    const userScore = quizSubmitted ? calculateScore() : null;
-
-    return `
-      <div style="margin-bottom: 16px;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-          <div>
-            <div style="font-size: 18px; font-weight: 600;">Test de Compréhension</div>
-            <div style="font-size: 12px; color: #888;">${currentQuestions.examType} ${currentQuestions.level} | Question ${currentQuestionIndex + 1} / ${totalQuestions}</div>
-            ${quizSubmitted ? `<div style="font-size: 14px; color: #4CAF50; font-weight: 600; margin-top: 4px;">Score: ${userScore.correct}/${totalQuestions}</div>` : ''}
-          </div>
-          <button id="rl-back-from-questions" style="
-            background: #f5f5f5;
-            color: #666;
-            border: none;
-            padding: 8px 16px;
-            border-radius: 6px;
-            font-size: 13px;
-            cursor: pointer;
-          ">← Retour</button>
-        </div>
-      </div>
-
-      ${renderQuestion(question, currentQuestionIndex)}
-
-      <div style="display: flex; gap: 8px; margin: 16px 0;">
-        <button id="rl-prev-question" style="
-          flex: 1;
-          background: ${currentQuestionIndex === 0 ? '#f5f5f5' : 'white'};
-          color: ${currentQuestionIndex === 0 ? '#ccc' : '#333'};
-          border: 1px solid #ddd;
-          padding: 10px;
-          border-radius: 6px;
-          font-size: 13px;
-          cursor: ${currentQuestionIndex === 0 ? 'not-allowed' : 'pointer'};
-        " ${currentQuestionIndex === 0 ? 'disabled' : ''}>← Précédent</button>
-
-        <button id="rl-next-question" style="
-          flex: 1;
-          background: ${currentQuestionIndex === totalQuestions - 1 ? '#f5f5f5' : 'white'};
-          color: ${currentQuestionIndex === totalQuestions - 1 ? '#ccc' : '#333'};
-          border: 1px solid #ddd;
-          padding: 10px;
-          border-radius: 6px;
-          font-size: 13px;
-          cursor: ${currentQuestionIndex === totalQuestions - 1 ? 'not-allowed' : 'pointer'};
-        " ${currentQuestionIndex === totalQuestions - 1 ? 'disabled' : ''}>Suivant →</button>
-      </div>
-
-      ${!quizSubmitted ? `
-        <button id="rl-check-answers-btn" style="
-          width: 100%;
-          background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
-          color: white;
-          border: none;
-          padding: 14px;
-          border-radius: 8px;
-          font-size: 14px;
-          font-weight: 600;
-          cursor: pointer;
-          margin-bottom: 8px;
-        ">✓ Vérifier les Réponses</button>
-      ` : `
-        <div style="display: flex; gap: 8px; margin-bottom: 8px;">
-          <button id="rl-retake-quiz-btn" style="
-            flex: 1;
-            background: linear-gradient(135deg, #FF9800 0%, #F57C00 100%);
-            color: white;
-            border: none;
-            padding: 12px;
-            border-radius: 8px;
-            font-size: 13px;
-            font-weight: 600;
-            cursor: pointer;
-          ">🔄 Recommencer</button>
-
-          <button id="rl-export-questions-btn" style="
-            flex: 1;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            padding: 12px;
-            border-radius: 8px;
-            font-size: 13px;
-            font-weight: 600;
-            cursor: pointer;
-          ">📥 Exporter</button>
-        </div>
-      `}
-    `;
-  }
-
-  function renderQuestion(question, index) {
-    const isAnswered = userAnswers.hasOwnProperty(question.id);
-    const userAnswer = userAnswers[question.id];
-    const isCorrect = quizSubmitted && userAnswer === question.correct_answer;
-
-    // Sanitize question data to prevent XSS
-    const safeQuestion = sanitizeForDisplay(question.question);
-    const safeCorrectAnswer = sanitizeForDisplay(question.correct_answer);
-    const safeExplanation = sanitizeForDisplay(question.explanation);
-    const safeUserAnswer = sanitizeForDisplay(userAnswer || '');
-
-    let questionHTML = `
-      <div style="background: #f5f5f5; padding: 16px; border-radius: 8px; margin-bottom: 16px;">
-        <div style="font-size: 14px; font-weight: 600; margin-bottom: 12px; color: #333;">
-          ${index + 1}. ${safeQuestion}
-        </div>
-    `;
-
-    // Render based on question type
-    if (question.type === 'multiple_choice') {
-      questionHTML += '<div id="rl-question-options">';
-      for (const [key, value] of Object.entries(question.options)) {
-        const isSelected = userAnswer === key;
-        const bgColor = quizSubmitted
-          ? (key === question.correct_answer ? '#e8f5e9' : (isSelected ? '#ffebee' : 'white'))
-          : (isSelected ? '#e3f2fd' : 'white');
-
-        // Sanitize option value
-        const safeValue = sanitizeForDisplay(value);
-
-        questionHTML += `
-          <label style="
-            display: block;
-            padding: 10px 12px;
-            background: ${bgColor};
-            margin-bottom: 8px;
-            border-radius: 6px;
-            cursor: ${quizSubmitted ? 'default' : 'pointer'};
-            border: 2px solid ${quizSubmitted && key === question.correct_answer ? '#4CAF50' : (isSelected ? '#2196F3' : '#ddd')};
-            transition: all 0.2s ease;
-          ">
-            <input type="radio" name="answer_${question.id}" value="${key}" ${isSelected ? 'checked' : ''} ${quizSubmitted ? 'disabled' : ''} style="margin-right: 8px;">
-            <span style="font-size: 13px;">${key}. ${safeValue}</span>
-          </label>
-        `;
-      }
-      questionHTML += '</div>';
-
-    } else if (question.type === 'true_false') {
-      for (const option of ['Vrai', 'Faux']) {
-        const isSelected = userAnswer === option;
-        const bgColor = quizSubmitted
-          ? (option === question.correct_answer ? '#e8f5e9' : (isSelected ? '#ffebee' : 'white'))
-          : (isSelected ? '#e3f2fd' : 'white');
-
-        questionHTML += `
-          <label style="
-            display: block;
-            padding: 10px 12px;
-            background: ${bgColor};
-            margin-bottom: 8px;
-            border-radius: 6px;
-            cursor: ${quizSubmitted ? 'default' : 'pointer'};
-            border: 2px solid ${quizSubmitted && option === question.correct_answer ? '#4CAF50' : (isSelected ? '#2196F3' : '#ddd')};
-          ">
-            <input type="radio" name="answer_${question.id}" value="${option}" ${isSelected ? 'checked' : ''} ${quizSubmitted ? 'disabled' : ''} style="margin-right: 8px;">
-            <span>${option}</span>
-          </label>
-        `;
-      }
-
-    } else if (question.type === 'fill_blank' || question.type === 'short_answer') {
-      const bgColor = quizSubmitted
-        ? (userAnswer && userAnswer.toLowerCase().trim() === question.correct_answer.toLowerCase().trim() ? '#e8f5e9' : '#ffebee')
-        : 'white';
-
-      questionHTML += `
-        <input type="text" id="answer_${question.id}" value="${safeUserAnswer}" ${quizSubmitted ? 'disabled' : ''}
-          style="
-            width: 100%;
-            padding: 10px;
-            border: 2px solid #ddd;
-            border-radius: 6px;
-            font-size: 14px;
-            background: ${bgColor};
-          "
-          placeholder="Votre réponse...">
-      `;
-    }
-
-    // Show explanation after submission
-    if (quizSubmitted) {
-      const icon = isCorrect ? '✓' : '✗';
-      const color = isCorrect ? '#2e7d32' : '#c62828';
-
-      questionHTML += `
-        <div style="background: ${isCorrect ? '#e8f5e9' : '#ffebee'}; padding: 12px; border-radius: 6px; margin-top: 12px; border-left: 4px solid ${color};">
-          <div style="color: ${color}; font-weight: 600; margin-bottom: 4px;">${icon} Réponse correcte: ${safeCorrectAnswer}</div>
-          <div style="font-size: 12px; color: #666;">${safeExplanation}</div>
-        </div>
-      `;
-    }
-
-    questionHTML += '</div>';
-    return questionHTML;
+    // Note: renderQuestionsView uses sanitizeForDisplay for all question data
+    content.innerHTML = ui.renderQuestionsView(
+      state.currentQuestions,
+      state.currentQuestionIndex,
+      state.userAnswers,
+      state.quizSubmitted
+    );
+    attachQuestionListeners();
   }
 
   function attachQuestionListeners() {
-    // Back button
-    const backBtn = document.getElementById('rl-back-from-questions');
-    if (backBtn) {
-      backBtn.addEventListener('click', () => {
-        currentQuestions = null;
-        currentQuestionIndex = 0;
-        userAnswers = {};
-        quizSubmitted = false;
-        updateMenuContent();
-      });
-    }
+    document.getElementById('rl-back-from-questions')?.addEventListener('click', () => {
+      state.currentQuestions = null;
+      updateMenu();
+    });
 
-    // Navigation buttons
     document.getElementById('rl-prev-question')?.addEventListener('click', () => {
-      if (currentQuestionIndex > 0) {
+      if (state.currentQuestionIndex > 0) {
         saveCurrentAnswer();
-        currentQuestionIndex--;
+        state.currentQuestionIndex--;
         showQuestionsView();
       }
     });
 
     document.getElementById('rl-next-question')?.addEventListener('click', () => {
-      if (currentQuestionIndex < currentQuestions.questions.length - 1) {
+      if (state.currentQuestionIndex < state.currentQuestions.questions.length - 1) {
         saveCurrentAnswer();
-        currentQuestionIndex++;
+        state.currentQuestionIndex++;
         showQuestionsView();
       }
     });
 
-    // Check answers button
     document.getElementById('rl-check-answers-btn')?.addEventListener('click', async () => {
       saveCurrentAnswer();
-      quizSubmitted = true;
-
-      // Calculate score and save to deck
+      state.quizSubmitted = true;
       const score = calculateScore();
-      showBanner(`📊 Votre score: ${score.correct}/${score.total}`, 'success');
+      ui.showBanner(`📊 Score: ${score.correct}/${score.total}`, 'success');
 
-      // Add to deck
-      await addQuestionsToDeck(score.correct);
-
-      showQuestionsView();
-    });
-
-    // Retake button
-    document.getElementById('rl-retake-quiz-btn')?.addEventListener('click', () => {
-      userAnswers = {};
-      quizSubmitted = false;
-      currentQuestionIndex = 0;
-      showQuestionsView();
-    });
-
-    // Export button
-    document.getElementById('rl-export-questions-btn')?.addEventListener('click', () => {
-      exportQuestions();
-    });
-
-    // Answer inputs
-    const currentQuestion = currentQuestions.questions[currentQuestionIndex];
-
-    if (currentQuestion.type === 'multiple_choice' || currentQuestion.type === 'true_false') {
-      document.querySelectorAll(`input[name="answer_${currentQuestion.id}"]`).forEach(radio => {
-        radio.addEventListener('change', () => {
-          userAnswers[currentQuestion.id] = radio.value;
-        });
+      await api.addQuestionsToDeckApi({
+        userId: USER_ID,
+        questionSetId: state.currentQuestions.questionSetId,
+        questions: state.currentQuestions.questions,
+        level: state.currentQuestions.level,
+        examType: state.currentQuestions.examType,
+        sourceUrl: window.location.href,
+        sourceTitle: document.title,
+        userScore: score.correct
       });
-    } else if (currentQuestion.type === 'fill_blank' || currentQuestion.type === 'short_answer') {
-      const input = document.getElementById(`answer_${currentQuestion.id}`);
-      if (input) {
-        input.addEventListener('input', () => {
-          userAnswers[currentQuestion.id] = input.value;
-        });
+
+      showQuestionsView();
+    });
+
+    document.getElementById('rl-retake-quiz-btn')?.addEventListener('click', () => {
+      state.userAnswers = {};
+      state.quizSubmitted = false;
+      state.currentQuestionIndex = 0;
+      showQuestionsView();
+    });
+
+    document.getElementById('rl-export-questions-btn')?.addEventListener('click', async () => {
+      try {
+        ui.showBanner('🔄 Exporting...', 'loading');
+        const csv = await api.exportQuestionsApi(USER_ID);
+        utils.downloadBlob(new Blob([csv], { type: 'text/csv' }), `questions-${USER_ID}.csv`);
+        ui.showBanner('✅ Exported!', 'success');
+      } catch (error) {
+        ui.showBanner(`❌ ${error.message}`, 'error');
       }
+    });
+
+    // Answer input listeners
+    const q = state.currentQuestions.questions[state.currentQuestionIndex];
+    if (q.type === 'multiple_choice' || q.type === 'true_false') {
+      document.querySelectorAll(`input[name="answer_${q.id}"]`).forEach(radio => {
+        radio.addEventListener('change', () => { state.userAnswers[q.id] = radio.value; });
+      });
+    } else {
+      const input = document.getElementById(`answer_${q.id}`);
+      input?.addEventListener('input', () => { state.userAnswers[q.id] = input.value; });
     }
   }
 
   function saveCurrentAnswer() {
-    const currentQuestion = currentQuestions.questions[currentQuestionIndex];
-
-    if (currentQuestion.type === 'fill_blank' || currentQuestion.type === 'short_answer') {
-      const input = document.getElementById(`answer_${currentQuestion.id}`);
-      if (input) {
-        userAnswers[currentQuestion.id] = input.value;
-      }
+    const q = state.currentQuestions.questions[state.currentQuestionIndex];
+    if (q.type === 'fill_blank' || q.type === 'short_answer') {
+      const input = document.getElementById(`answer_${q.id}`);
+      if (input) state.userAnswers[q.id] = input.value;
     }
   }
 
   function calculateScore() {
     let correct = 0;
-    let total = currentQuestions.questions.length;
-
-    for (const question of currentQuestions.questions) {
-      const userAnswer = userAnswers[question.id];
-
-      if (question.type === 'fill_blank' || question.type === 'short_answer') {
-        if (userAnswer && userAnswer.toLowerCase().trim() === question.correct_answer.toLowerCase().trim()) {
-          correct++;
-        }
-      } else {
-        if (userAnswer === question.correct_answer) {
-          correct++;
-        }
+    for (const q of state.currentQuestions.questions) {
+      const answer = state.userAnswers[q.id];
+      if (q.type === 'fill_blank' || q.type === 'short_answer') {
+        if (answer?.toLowerCase().trim() === q.correct_answer.toLowerCase().trim()) correct++;
+      } else if (answer === q.correct_answer) {
+        correct++;
       }
     }
-
-    return { correct, total };
-  }
-
-  async function addQuestionsToDeck(userScore) {
-    try {
-      await apiFetch('/questions/deck/add', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: USER_ID,
-          questionSetId: currentQuestions.questionSetId,
-          questions: currentQuestions.questions,
-          level: currentQuestions.level,
-          examType: currentQuestions.examType,
-          sourceUrl: window.location.href,
-          sourceTitle: document.title,
-          userScore
-        })
-      });
-
-      console.log('✅ Questions added to deck');
-    } catch (error) {
-      console.error('Error adding to deck:', error);
-    }
-  }
-
-  async function exportQuestions() {
-    try {
-      showBanner('🔄 Exporting questions...', 'loading');
-
-      const response = await apiFetch(`/questions/deck/${USER_ID}/export?format=anki`);
-      if (!response.ok) {
-        throw new Error('Export failed');
-      }
-
-      const csv = await response.text();
-      const blob = new Blob([csv], { type: 'text/csv' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `comprehension-deck-${USER_ID}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
-
-      showBanner('✅ Exported to Anki CSV!', 'success');
-
-    } catch (error) {
-      console.error('Export error:', error);
-      showBanner(`❌ Export failed: ${error.message}`, 'error');
-    }
-  }
-
-  // ========================================
-  // PERSISTENT TOOLTIPS
-  // ========================================
-  function createPersistentTooltip(word, translation) {
-    // Store in our persistent tooltips object
-    const normalizedWord = word.toLowerCase().trim();
-    if (persistentTooltips[normalizedWord]) {
-      console.log(`⚠️ Word "${word}" already in persistentTooltips, but will re-highlight anyway`);
-      // Still highlight in case page content changed or word wasn't actually highlighted
-      highlightWordOnPage(word, translation);
-      return;
-    }
-
-    persistentTooltips[normalizedWord] = translation;
-    console.log(`✅ Created persistent tooltip for "${word}": "${translation}"`);
-
-    // Find all instances of this word in the page and add tooltips
-    highlightWordOnPage(word, translation);
-  }
-
-  function highlightWordOnPage(word, translation) {
-    const articleElement = detectArticle();
-    if (!articleElement) {
-      console.warn('⚠️ No article element detected, falling back to document.body');
-      // Fallback to document.body if no article detected
-      const bodyElement = document.body;
-      if (!bodyElement) {
-        console.error('❌ Cannot highlight - no body element');
-        return;
-      }
-      highlightInElement(bodyElement, word, translation);
-      return;
-    }
-
-    highlightInElement(articleElement, word, translation);
-  }
-
-  function highlightInElement(rootElement, word, translation) {
-    console.log(`🎨 Highlighting word "${word}" with translation "${translation}"`);
-
-    // Use TreeWalker to find text nodes
-    const walker = document.createTreeWalker(
-      rootElement,
-      NodeFilter.SHOW_TEXT,
-      {
-        acceptNode: function(node) {
-          // Skip if parent is already highlighted or is script/style
-          if (node.parentElement.classList.contains('rl-highlighted-word') ||
-              node.parentElement.tagName === 'SCRIPT' ||
-              node.parentElement.tagName === 'STYLE' ||
-              node.parentElement.closest('#rl-menu') ||
-              node.parentElement.closest('#rl-button') ||
-              node.parentElement.closest('#rl-selection-popup')) {
-            return NodeFilter.FILTER_REJECT;
-          }
-          return NodeFilter.FILTER_ACCEPT;
-        }
-      }
-    );
-
-    const nodesToReplace = [];
-    const wordPattern = new RegExp(`\\b(${escapeRegExp(word)})\\b`, 'gi');
-
-    // Collect all text nodes that contain the word
-    let node;
-    while (node = walker.nextNode()) {
-      if (wordPattern.test(node.textContent)) {
-        nodesToReplace.push(node);
-      }
-    }
-
-    console.log(`📍 Found ${nodesToReplace.length} text nodes containing "${word}"`);
-
-    // Replace text nodes with highlighted spans using safe DOM manipulation
-    nodesToReplace.forEach(textNode => {
-      const parent = textNode.parentElement;
-      const text = textNode.textContent;
-
-      // Split text by the word pattern and rebuild with highlighted spans
-      const parts = text.split(wordPattern);
-      const fragment = document.createDocumentFragment();
-
-      let isMatch = false;
-      for (let i = 0; i < parts.length; i++) {
-        const part = parts[i];
-        if (part === undefined || part === '') continue;
-
-        // Check if this part matches the word pattern (case-insensitive)
-        if (wordPattern.test(part)) {
-          // This is a match - create highlighted span
-          const span = document.createElement('span');
-          span.className = 'rl-highlighted-word';
-          span.dataset.translation = translation;
-          span.style.cssText = `
-            background: linear-gradient(135deg, #FFF3E0 0%, #FFE0B2 100%);
-            border-bottom: 2px solid #FF9800;
-            padding: 2px 4px;
-            border-radius: 3px;
-            cursor: help;
-            position: relative;
-          `;
-          span.textContent = part; // Safe: uses textContent
-          fragment.appendChild(span);
-          // Reset regex lastIndex for global pattern
-          wordPattern.lastIndex = 0;
-        } else {
-          // This is regular text - create text node
-          fragment.appendChild(document.createTextNode(part));
-        }
-      }
-
-      parent.replaceChild(fragment, textNode);
-    });
-
-    // Add hover tooltips to all highlighted words
-    document.querySelectorAll('.rl-highlighted-word').forEach(span => {
-      if (!span.dataset.listenerAttached) {
-        span.dataset.listenerAttached = 'true';
-
-        span.addEventListener('mouseenter', function(e) {
-          const tooltipText = this.dataset.translation;
-          const existingTooltip = document.getElementById('rl-word-tooltip');
-          if (existingTooltip) existingTooltip.remove();
-
-          const tooltip = document.createElement('div');
-          tooltip.id = 'rl-word-tooltip';
-          tooltip.style.cssText = `
-            position: absolute;
-            background: #333;
-            color: white;
-            padding: 6px 10px;
-            border-radius: 6px;
-            font-size: 13px;
-            z-index: 999999;
-            pointer-events: none;
-            white-space: nowrap;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-          `;
-          tooltip.textContent = tooltipText;
-
-          document.body.appendChild(tooltip);
-
-          const rect = this.getBoundingClientRect();
-          tooltip.style.left = `${rect.left + window.scrollX}px`;
-          tooltip.style.top = `${rect.bottom + window.scrollY + 5}px`;
-        });
-
-        span.addEventListener('mouseleave', function() {
-          const tooltip = document.getElementById('rl-word-tooltip');
-          if (tooltip) tooltip.remove();
-        });
-      }
-    });
-  }
-
-  function escapeRegExp(string) {
-    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  }
-
-  /**
-   * Safely escape HTML entities in text to prevent XSS
-   * Uses textContent assignment which is inherently safe
-   */
-  function escapeHtml(text) {
-    if (text === null || text === undefined) return '';
-    const div = document.createElement('div');
-    div.textContent = String(text);
-    return div.innerHTML;
-  }
-
-  /**
-   * Sanitize text for safe display in the UI
-   * Escapes HTML entities to prevent script injection
-   * @param {string} text - The text to sanitize
-   * @returns {string} - Sanitized text safe for innerHTML
-   */
-  function sanitizeForDisplay(text) {
-    if (text === null || text === undefined) return '';
-    return escapeHtml(String(text));
-  }
-
-  /**
-   * Safely set text content of an element
-   * Preferred over innerHTML when only displaying plain text
-   * @param {HTMLElement} element - The element to update
-   * @param {string} text - The text to display
-   */
-  function safeSetText(element, text) {
-    if (element) {
-      element.textContent = text !== null && text !== undefined ? String(text) : '';
-    }
-  }
-
-  // ========================================
-  // BANNER
-  // ========================================
-  function showBanner(message, type = 'info', autoRemove = true) {
-    const existingBanner = document.getElementById('rl-banner');
-    if (existingBanner) {
-      existingBanner.remove();
-    }
-
-    const colors = {
-      loading: '#2196F3',
-      success: '#4CAF50',
-      error: '#f44336',
-      info: '#2196F3'
-    };
-
-    const banner = document.createElement('div');
-    banner.id = 'rl-banner';
-    banner.style.cssText = `
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      background: ${colors[type]};
-      color: white;
-      padding: 15px 20px;
-      z-index: 999999;
-      text-align: center;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      font-size: 14px;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-    `;
-    // Use textContent for safety - message is controlled but may contain error.message from APIs
-    banner.textContent = message;
-    document.body.prepend(banner);
-
-    if (autoRemove && type !== 'loading') {
-      setTimeout(() => banner.remove(), 5000);
-    }
-
-    return banner;
+    return { correct, total: state.currentQuestions.questions.length };
   }
 
   // ========================================
   // INITIALIZE
   // ========================================
-  showRLButton();
 
-  // Restore selection mode if it was active
-  if (selectionModeActive) {
-    console.log('🔄 Restoring selection mode from localStorage');
-    enableSelectionMode();
+  // Create R/L button
+  const button = ui.createRLButton(() => {
+    state.menuExpanded = !state.menuExpanded;
+    if (state.menuExpanded) {
+      // Note: Menu content is generated using sanitized render functions
+      const menu = ui.createMenu(
+        state.currentAnalysis
+          ? ui.renderAnalysisView(state.currentAnalysis, state.selectionModeActive)
+          : ui.renderInitialView(state.selectionModeActive),
+        () => { state.menuExpanded = false; }
+      );
+      document.body.appendChild(menu);
+      attachMenuListeners();
+    } else {
+      ui.hideMenu();
+    }
+  });
+  document.body.appendChild(button);
+
+  // Restore selection mode
+  if (state.selectionModeActive) {
+    console.log('🔄 Restoring selection mode');
+    document.addEventListener('mouseup', onTextSelection);
   }
 
+  console.log('✅ Read & Learn activated!');
 })();

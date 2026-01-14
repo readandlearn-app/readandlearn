@@ -650,3 +650,403 @@ export function renderDeckView(cards, getCefrColorFn) {
     </div>
   `;
 }
+
+// ========================================
+// SELECTION POPUP
+// ========================================
+export function createSelectionPopup(word, x, y, callbacks) {
+  const existingPopup = document.getElementById('rl-selection-popup');
+  if (existingPopup) existingPopup.remove();
+
+  const popup = document.createElement('div');
+  popup.id = 'rl-selection-popup';
+  popup.style.cssText = `
+    position: absolute;
+    left: ${x}px;
+    top: ${y + 10}px;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+    padding: 12px 16px;
+    z-index: 999999;
+    font-family: 'SF Pro Display', -apple-system, sans-serif;
+    min-width: 220px;
+    max-width: 300px;
+  `;
+
+  // Build popup using safe DOM methods for dynamic content
+  const titleDiv = document.createElement('div');
+  titleDiv.style.cssText = 'font-size: 14px; font-weight: 600; margin-bottom: 8px; color: #333;';
+  titleDiv.textContent = `"${word.substring(0, 30)}${word.length > 30 ? '...' : ''}"`;
+
+  const meaningDiv = document.createElement('div');
+  meaningDiv.id = 'rl-popup-meaning';
+  meaningDiv.style.cssText = 'display: none; background: #f5f5f5; padding: 8px; border-radius: 6px; margin-bottom: 8px; font-size: 12px; color: #333;';
+
+  const getMeaningBtn = document.createElement('button');
+  getMeaningBtn.id = 'rl-get-meaning-btn';
+  getMeaningBtn.style.cssText = `
+    width: 100%;
+    background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-bottom: 6px;
+  `;
+  getMeaningBtn.textContent = '🔍 Get Meaning';
+
+  const addToDeckBtn = document.createElement('button');
+  addToDeckBtn.id = 'rl-add-to-deck-popup-btn';
+  addToDeckBtn.style.cssText = `
+    width: 100%;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-bottom: 6px;
+  `;
+  addToDeckBtn.textContent = '+ Add to Deck';
+
+  const cancelBtn = document.createElement('button');
+  cancelBtn.style.cssText = `
+    width: 100%;
+    background: #f5f5f5;
+    color: #666;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+  `;
+  cancelBtn.textContent = 'Cancel';
+
+  popup.appendChild(titleDiv);
+  popup.appendChild(meaningDiv);
+  popup.appendChild(getMeaningBtn);
+  popup.appendChild(addToDeckBtn);
+  popup.appendChild(cancelBtn);
+
+  let currentMeaning = null;
+
+  getMeaningBtn.addEventListener('click', async () => {
+    getMeaningBtn.textContent = '🔄 Loading...';
+    getMeaningBtn.disabled = true;
+
+    try {
+      const result = await callbacks.onGetMeaning();
+      currentMeaning = result;
+
+      // Safely display API response using DOM methods
+      meaningDiv.textContent = '';
+      const translationEl = document.createElement('strong');
+      translationEl.textContent = result.translation || '';
+      const definitionEl = document.createElement('small');
+      definitionEl.textContent = result.definition || '';
+      meaningDiv.appendChild(translationEl);
+      meaningDiv.appendChild(document.createElement('br'));
+      meaningDiv.appendChild(definitionEl);
+      meaningDiv.style.display = 'block';
+      getMeaningBtn.style.display = 'none';
+    } catch (error) {
+      meaningDiv.textContent = '';
+      const errorSpan = document.createElement('span');
+      errorSpan.style.color = '#f44336';
+      errorSpan.textContent = `Error: ${error.message || 'Unknown error'}`;
+      meaningDiv.appendChild(errorSpan);
+      meaningDiv.style.display = 'block';
+      getMeaningBtn.textContent = '🔍 Get Meaning';
+      getMeaningBtn.disabled = false;
+    }
+  });
+
+  addToDeckBtn.addEventListener('click', () => {
+    callbacks.onAddToDeck(currentMeaning);
+    popup.remove();
+  });
+
+  cancelBtn.addEventListener('click', () => {
+    popup.remove();
+  });
+
+  return popup;
+}
+
+// ========================================
+// HIGHLIGHTED WORD
+// ========================================
+export function createHighlightedWord(word, translation) {
+  const span = document.createElement('span');
+  span.className = 'rl-highlighted-word';
+  span.dataset.translation = translation;
+  span.style.cssText = `
+    background: linear-gradient(135deg, #FFF3E0 0%, #FFE0B2 100%);
+    border-bottom: 2px solid #FF9800;
+    padding: 2px 4px;
+    border-radius: 3px;
+    cursor: help;
+    position: relative;
+  `;
+  span.textContent = word; // Safe: uses textContent
+
+  span.addEventListener('mouseenter', function() {
+    const existingTooltip = document.getElementById('rl-word-tooltip');
+    if (existingTooltip) existingTooltip.remove();
+
+    const tooltip = document.createElement('div');
+    tooltip.id = 'rl-word-tooltip';
+    tooltip.style.cssText = `
+      position: absolute;
+      background: #333;
+      color: white;
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 13px;
+      z-index: 999999;
+      pointer-events: none;
+      white-space: nowrap;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    `;
+    tooltip.textContent = this.dataset.translation;
+
+    document.body.appendChild(tooltip);
+
+    const rect = this.getBoundingClientRect();
+    tooltip.style.left = `${rect.left + window.scrollX}px`;
+    tooltip.style.top = `${rect.bottom + window.scrollY + 5}px`;
+  });
+
+  span.addEventListener('mouseleave', function() {
+    const tooltip = document.getElementById('rl-word-tooltip');
+    if (tooltip) tooltip.remove();
+  });
+
+  return span;
+}
+
+// ========================================
+// QUESTIONS VIEW
+// ========================================
+export function renderQuestionsView(questions, currentIndex, userAnswers, quizSubmitted) {
+  if (!questions || !questions.questions) {
+    return '<div style="padding: 20px; text-align: center;">No questions available</div>';
+  }
+
+  const question = questions.questions[currentIndex];
+  const totalQuestions = questions.questions.length;
+  const userScore = quizSubmitted ? calculateDisplayScore(questions.questions, userAnswers) : null;
+
+  return `
+    <div style="margin-bottom: 16px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <div>
+          <div style="font-size: 18px; font-weight: 600;">Test de Compréhension</div>
+          <div style="font-size: 12px; color: #888;">${sanitizeForDisplay(questions.examType)} ${sanitizeForDisplay(questions.level)} | Question ${currentIndex + 1} / ${totalQuestions}</div>
+          ${quizSubmitted ? `<div style="font-size: 14px; color: #4CAF50; font-weight: 600; margin-top: 4px;">Score: ${userScore.correct}/${totalQuestions}</div>` : ''}
+        </div>
+        <button id="rl-back-from-questions" style="
+          background: #f5f5f5;
+          color: #666;
+          border: none;
+          padding: 8px 16px;
+          border-radius: 6px;
+          font-size: 13px;
+          cursor: pointer;
+        ">← Retour</button>
+      </div>
+    </div>
+
+    ${renderQuestion(question, currentIndex, userAnswers, quizSubmitted)}
+
+    <div style="display: flex; gap: 8px; margin: 16px 0;">
+      <button id="rl-prev-question" style="
+        flex: 1;
+        background: ${currentIndex === 0 ? '#f5f5f5' : 'white'};
+        color: ${currentIndex === 0 ? '#ccc' : '#333'};
+        border: 1px solid #ddd;
+        padding: 10px;
+        border-radius: 6px;
+        font-size: 13px;
+        cursor: ${currentIndex === 0 ? 'not-allowed' : 'pointer'};
+      " ${currentIndex === 0 ? 'disabled' : ''}>← Précédent</button>
+
+      <button id="rl-next-question" style="
+        flex: 1;
+        background: ${currentIndex === totalQuestions - 1 ? '#f5f5f5' : 'white'};
+        color: ${currentIndex === totalQuestions - 1 ? '#ccc' : '#333'};
+        border: 1px solid #ddd;
+        padding: 10px;
+        border-radius: 6px;
+        font-size: 13px;
+        cursor: ${currentIndex === totalQuestions - 1 ? 'not-allowed' : 'pointer'};
+      " ${currentIndex === totalQuestions - 1 ? 'disabled' : ''}>Suivant →</button>
+    </div>
+
+    ${!quizSubmitted ? `
+      <button id="rl-check-answers-btn" style="
+        width: 100%;
+        background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+        color: white;
+        border: none;
+        padding: 14px;
+        border-radius: 8px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        margin-bottom: 8px;
+      ">✓ Vérifier les Réponses</button>
+    ` : `
+      <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+        <button id="rl-retake-quiz-btn" style="
+          flex: 1;
+          background: linear-gradient(135deg, #FF9800 0%, #F57C00 100%);
+          color: white;
+          border: none;
+          padding: 12px;
+          border-radius: 8px;
+          font-size: 13px;
+          font-weight: 600;
+          cursor: pointer;
+        ">🔄 Recommencer</button>
+
+        <button id="rl-export-questions-btn" style="
+          flex: 1;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          color: white;
+          border: none;
+          padding: 12px;
+          border-radius: 8px;
+          font-size: 13px;
+          font-weight: 600;
+          cursor: pointer;
+        ">📥 Exporter</button>
+      </div>
+    `}
+  `;
+}
+
+function renderQuestion(question, index, userAnswers, quizSubmitted) {
+  const userAnswer = userAnswers[question.id];
+  const isCorrect = quizSubmitted && userAnswer === question.correct_answer;
+
+  // Sanitize question data to prevent XSS
+  const safeQuestion = sanitizeForDisplay(question.question);
+  const safeCorrectAnswer = sanitizeForDisplay(question.correct_answer);
+  const safeExplanation = sanitizeForDisplay(question.explanation);
+  const safeUserAnswer = sanitizeForDisplay(userAnswer || '');
+
+  let questionHTML = `
+    <div style="background: #f5f5f5; padding: 16px; border-radius: 8px; margin-bottom: 16px;">
+      <div style="font-size: 14px; font-weight: 600; margin-bottom: 12px; color: #333;">
+        ${index + 1}. ${safeQuestion}
+      </div>
+  `;
+
+  // Render based on question type
+  if (question.type === 'multiple_choice') {
+    questionHTML += '<div id="rl-question-options">';
+    for (const [key, value] of Object.entries(question.options)) {
+      const isSelected = userAnswer === key;
+      const bgColor = quizSubmitted
+        ? (key === question.correct_answer ? '#e8f5e9' : (isSelected ? '#ffebee' : 'white'))
+        : (isSelected ? '#e3f2fd' : 'white');
+
+      // Sanitize option value
+      const safeValue = sanitizeForDisplay(value);
+
+      questionHTML += `
+        <label style="
+          display: block;
+          padding: 10px 12px;
+          background: ${bgColor};
+          margin-bottom: 8px;
+          border-radius: 6px;
+          cursor: ${quizSubmitted ? 'default' : 'pointer'};
+          border: 2px solid ${quizSubmitted && key === question.correct_answer ? '#4CAF50' : (isSelected ? '#2196F3' : '#ddd')};
+          transition: all 0.2s ease;
+        ">
+          <input type="radio" name="answer_${question.id}" value="${key}" ${isSelected ? 'checked' : ''} ${quizSubmitted ? 'disabled' : ''} style="margin-right: 8px;">
+          <span style="font-size: 13px;">${key}. ${safeValue}</span>
+        </label>
+      `;
+    }
+    questionHTML += '</div>';
+
+  } else if (question.type === 'true_false') {
+    for (const option of ['Vrai', 'Faux']) {
+      const isSelected = userAnswer === option;
+      const bgColor = quizSubmitted
+        ? (option === question.correct_answer ? '#e8f5e9' : (isSelected ? '#ffebee' : 'white'))
+        : (isSelected ? '#e3f2fd' : 'white');
+
+      questionHTML += `
+        <label style="
+          display: block;
+          padding: 10px 12px;
+          background: ${bgColor};
+          margin-bottom: 8px;
+          border-radius: 6px;
+          cursor: ${quizSubmitted ? 'default' : 'pointer'};
+          border: 2px solid ${quizSubmitted && option === question.correct_answer ? '#4CAF50' : (isSelected ? '#2196F3' : '#ddd')};
+        ">
+          <input type="radio" name="answer_${question.id}" value="${option}" ${isSelected ? 'checked' : ''} ${quizSubmitted ? 'disabled' : ''} style="margin-right: 8px;">
+          <span>${option}</span>
+        </label>
+      `;
+    }
+
+  } else if (question.type === 'fill_blank' || question.type === 'short_answer') {
+    const bgColor = quizSubmitted
+      ? (userAnswer && userAnswer.toLowerCase().trim() === question.correct_answer.toLowerCase().trim() ? '#e8f5e9' : '#ffebee')
+      : 'white';
+
+    questionHTML += `
+      <input type="text" id="answer_${question.id}" value="${safeUserAnswer}" ${quizSubmitted ? 'disabled' : ''}
+        style="
+          width: 100%;
+          padding: 10px;
+          border: 2px solid #ddd;
+          border-radius: 6px;
+          font-size: 14px;
+          background: ${bgColor};
+        "
+        placeholder="Votre réponse...">
+    `;
+  }
+
+  // Show explanation after submission
+  if (quizSubmitted) {
+    const icon = isCorrect ? '✓' : '✗';
+    const color = isCorrect ? '#2e7d32' : '#c62828';
+
+    questionHTML += `
+      <div style="background: ${isCorrect ? '#e8f5e9' : '#ffebee'}; padding: 12px; border-radius: 6px; margin-top: 12px; border-left: 4px solid ${color};">
+        <div style="color: ${color}; font-weight: 600; margin-bottom: 4px;">${icon} Réponse correcte: ${safeCorrectAnswer}</div>
+        <div style="font-size: 12px; color: #666;">${safeExplanation}</div>
+      </div>
+    `;
+  }
+
+  questionHTML += '</div>';
+  return questionHTML;
+}
+
+function calculateDisplayScore(questions, userAnswers) {
+  let correct = 0;
+  for (const q of questions) {
+    const answer = userAnswers[q.id];
+    if (q.type === 'fill_blank' || q.type === 'short_answer') {
+      if (answer?.toLowerCase().trim() === q.correct_answer.toLowerCase().trim()) correct++;
+    } else if (answer === q.correct_answer) {
+      correct++;
+    }
+  }
+  return { correct, total: questions.length };
+}
