@@ -1,5 +1,5 @@
 // Default backend URL (for development)
-const DEFAULT_BACKEND_URL = 'http://localhost:3000';
+const DEFAULT_BACKEND_URL = 'http://localhost:3001';
 
 // Get backend URL from storage, falling back to default
 async function getBackendUrl() {

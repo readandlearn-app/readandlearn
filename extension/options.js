@@ -1,5 +1,5 @@
 // Default backend URL
-const DEFAULT_BACKEND_URL = 'http://localhost:3000';
+const DEFAULT_BACKEND_URL = 'http://localhost:3001';
 
 // DOM elements
 const backendUrlInput = document.getElementById('backendUrl');
@@ -28,7 +28,7 @@ saveBtn.addEventListener('click', () => {
 
   // Validate URL if provided
   if (url && !isValidUrl(url)) {
-    showStatus('Please enter a valid URL (e.g., http://localhost:3000)', 'error');
+    showStatus('Please enter a valid URL (e.g., http://localhost:3001)', 'error');
     return;
   }
 
