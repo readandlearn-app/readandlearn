@@ -599,7 +599,7 @@
     const langSelect = document.getElementById('rl-language-select');
 
     if (analyzeBtn) {
-      analyzeBtn.addEventListener('click', analyzeArticle);
+      analyzeBtn.addEventListener('click', analyzeContent);
     }
 
     if (viewDeckBtn) {
@@ -627,9 +627,9 @@
           localStorage.setItem('rl-language-override', value);
           console.log(`🌐 Language manually set to: ${SUPPORTED_LANGUAGES[value]} (${value})`);
         }
-        // Re-analyze if article was already analyzed
+        // Re-analyze if content was already analyzed
         if (currentAnalysis) {
-          analyzeArticle();
+          analyzeContent();
         }
       });
     }
@@ -963,6 +963,110 @@
     } catch (error) {
       console.error('Analysis error:', error);
       showBanner(`❌ Error: ${error.message}. Make sure backend is running.`, 'error');
+    }
+  }
+
+  // ========================================
+  // ANALYZE PDF
+  // ========================================
+  async function analyzePdf() {
+    try {
+      showBanner('📄 Extracting PDF text...', 'loading');
+
+      const text = await extractPdfText(window.location.href);
+
+      if (!text || text.trim().length < 100) {
+        showBanner('❌ Could not extract text. PDF may be scanned/image-only.', 'error');
+        return;
+      }
+
+      console.log(`📄 Extracted ${text.length} characters from PDF`);
+
+      // Check for manual language override first
+      let effectiveLangCode;
+      let effectiveLangName;
+
+      if (manualLanguageOverride && SUPPORTED_LANGUAGES[manualLanguageOverride]) {
+        // Use manual override
+        effectiveLangCode = manualLanguageOverride;
+        effectiveLangName = SUPPORTED_LANGUAGES[manualLanguageOverride];
+        console.log(`Using manual language override: ${effectiveLangName} (${effectiveLangCode})`);
+
+        // Still detect for display purposes but don't use it
+        const detected = await detectLanguage(text.substring(0, 5000)); // Use sample for detection
+        currentLanguage = detected;
+      } else {
+        // Detect language using Chrome's built-in API
+        showBanner('📄 Detecting language...', 'loading');
+        const detected = await detectLanguage(text.substring(0, 5000)); // Use sample for detection
+
+        if (!detected) {
+          showBanner('❌ Unsupported language detected. Supported: EU languages (French, Spanish, German, etc.)', 'error');
+          return;
+        }
+
+        currentLanguage = detected;
+        effectiveLangCode = detected.code;
+        effectiveLangName = detected.name;
+        console.log(`📄 Detected language: ${detected.name} (${detected.code}) with ${detected.confidence}% confidence`);
+      }
+
+      showBanner(`📄 Analyzing ${effectiveLangName} PDF... (this may take 5-10 seconds)`, 'loading');
+
+      const response = await apiFetch('/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text,
+          url: window.location.href,
+          language: effectiveLangCode
+        })
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        showBanner(`❌ Analysis failed: ${error.error}`, 'error');
+        return;
+      }
+
+      const result = await response.json();
+      console.log('✅ PDF CEFR Analysis:', result);
+
+      currentAnalysis = result;
+
+      // Remove banner
+      const banner = document.getElementById('rl-banner');
+      if (banner) banner.remove();
+
+      // Update menu
+      updateMenuContent();
+
+      showBanner(`✅ PDF analysis complete: ${result.cefr_level} level${result.cached ? ' (cached)' : ''}`, 'success');
+
+    } catch (error) {
+      console.error('📄 PDF analysis error:', error);
+
+      // Provide helpful error messages
+      if (error.message && error.message.includes('CORS')) {
+        showBanner('❌ Cannot access this PDF due to security restrictions.', 'error');
+      } else if (error.message && error.message.includes('password')) {
+        showBanner('❌ This PDF is password protected.', 'error');
+      } else {
+        showBanner(`❌ PDF error: ${error.message}. Make sure backend is running.`, 'error');
+      }
+    }
+  }
+
+  /**
+   * Smart analyze function that detects content type and calls appropriate analyzer
+   */
+  function analyzeContent() {
+    if (isPdfContext()) {
+      console.log('📄 PDF context detected, using PDF analyzer');
+      analyzePdf();
+    } else {
+      console.log('📰 Article context detected, using article analyzer');
+      analyzeArticle();
     }
   }
 
