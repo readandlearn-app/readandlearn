@@ -11,6 +11,7 @@ const currentUrlValue = document.getElementById('currentUrlValue');
 // Load saved settings on page load
 document.addEventListener('DOMContentLoaded', () => {
   loadSettings();
+  checkLocalPdfAccess();
 });
 
 // Load settings from chrome.storage.sync
@@ -73,4 +74,34 @@ function showStatus(message, type) {
   setTimeout(() => {
     statusDiv.className = 'status';
   }, 3000);
+}
+
+// Check local PDF file access status
+function checkLocalPdfAccess() {
+  const localPdfStatusValue = document.getElementById('localPdfStatusValue');
+
+  if (chrome.extension && chrome.extension.isAllowedFileSchemeAccess) {
+    chrome.extension.isAllowedFileSchemeAccess((isAllowed) => {
+      // Clear existing content
+      localPdfStatusValue.textContent = '';
+
+      // Create status indicator
+      const statusSpan = document.createElement('span');
+
+      if (isAllowed) {
+        statusSpan.style.color = '#2e7d32';
+        statusSpan.textContent = '✓ Enabled';
+        localPdfStatusValue.appendChild(statusSpan);
+        localPdfStatusValue.appendChild(document.createTextNode(' - You can analyze local PDF files'));
+      } else {
+        statusSpan.style.color = '#c62828';
+        statusSpan.textContent = '✗ Disabled';
+        localPdfStatusValue.appendChild(statusSpan);
+        localPdfStatusValue.appendChild(document.createTextNode(' - Follow the instructions below to enable'));
+      }
+    });
+  } else {
+    // Fallback for environments where the API isn't available
+    localPdfStatusValue.textContent = 'Unable to check - verify manually in extension settings';
+  }
 }
