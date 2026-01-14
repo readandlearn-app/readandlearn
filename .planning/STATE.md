@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-01-14)
 
 **Core value:** Production-ready, self-hostable infrastructure that anyone can deploy and use to learn languages by reading real content.
-**Current focus:** Phase 2 — Multi-Language Foundation complete, ready for Phase 3
+**Current focus:** Phase 3 — PDF Reading in progress
 
 ## Current Position
 
-Phase: 2 of 7 (Multi-Language Foundation)
-Plan: 2 of 2 in current phase
-Status: Phase complete
-Last activity: 2026-01-14 — Completed 02-02-PLAN.md
+Phase: 3 of 7 (PDF Reading)
+Plan: 1 of 2 in current phase
+Status: In progress
+Last activity: 2026-01-14 — Completed 03-01-PLAN.md
 
-Progress: ████░░░░░░ 29%
+Progress: █████░░░░░ 36%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 4
-- Average duration: 19 min
-- Total execution time: 1.23 hours
+- Total plans completed: 5
+- Average duration: 16 min
+- Total execution time: 1.27 hours
 
 **By Phase:**
 
@@ -29,10 +29,11 @@ Progress: ████░░░░░░ 29%
 |-------|-------|-------|----------|
 | 1 | 2/2 | 48 min | 24 min |
 | 2 | 2/2 | 26 min | 13 min |
+| 3 | 1/2 | 2 min | 2 min |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (6 min), 01-02 (42 min), 02-01 (3 min), 02-02 (23 min)
-- Trend: Phase 2 complete - extension now supports multi-language
+- Last 5 plans: 01-02 (42 min), 02-01 (3 min), 02-02 (23 min), 03-01 (2 min)
+- Trend: Phase 3 in progress - PDF.js integrated
 
 ## Accumulated Context
 
@@ -56,6 +57,9 @@ Recent decisions affecting current work:
 | 02-02 | chrome.i18n.detectLanguage() | Built-in CLD more accurate than word-list detection |
 | 02-02 | localStorage for language override | Matches existing extension settings pattern |
 | 02-02 | French fallback on detection failure | Backward compatibility when detection uncertain |
+| 03-01 | PDF.js v4.x not v5.x | v5.x requires Promise.withResolvers (newer Chrome only) |
+| 03-01 | Lazy load PDF.js | Avoid loading library on non-PDF pages |
+| 03-01 | 50 page extraction limit | Prevent performance issues with large PDFs |
 
 ### Deferred Issues
 
@@ -67,6 +71,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-01-14T20:00:50Z
-Stopped at: Completed 02-02-PLAN.md (Extension Language Detection) - Phase 2 complete
+Last session: 2026-01-14T20:22:59Z
+Stopped at: Completed 03-01-PLAN.md (PDF.js Setup + Text Extraction)
 Resume file: None
