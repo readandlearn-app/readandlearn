@@ -1,6 +1,9 @@
-// Design tokens for Read & Learn extension
-// Centralized design system constants
+/**
+ * @fileoverview Design tokens for Read & Learn extension
+ * @see DESIGN.md for usage guidelines
+ */
 
+/** Brand and UI colors */
 export const COLORS = {
   // Primary brand gradient
   primary: {
@@ -66,6 +69,7 @@ export const COLORS = {
   }
 };
 
+/** Typography tokens (fonts, sizes, weights) */
 export const TYPOGRAPHY = {
   // Font families
   fontFamily: {
@@ -106,6 +110,7 @@ export const TYPOGRAPHY = {
   }
 };
 
+/** Spacing scale for padding and margins */
 export const SPACING = {
   // Padding/margin scale
   xs: '4px',
@@ -118,6 +123,7 @@ export const SPACING = {
   '4xl': '40px'
 };
 
+/** Border radius and width tokens */
 export const BORDERS = {
   // Border radius
   radius: {
@@ -136,6 +142,7 @@ export const BORDERS = {
   }
 };
 
+/** Box and text shadow definitions */
 export const SHADOWS = {
   // Box shadows
   sm: '0 2px 8px rgba(0,0,0,0.08)',
@@ -151,12 +158,14 @@ export const SHADOWS = {
   text: '0 2px 4px rgba(0,0,0,0.3)'
 };
 
+/** CSS transition presets */
 export const TRANSITIONS = {
   fast: 'all 0.2s ease',
   medium: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
   slow: 'all 0.3s ease'
 };
 
+/** Z-index layering hierarchy */
 export const Z_INDEX = {
   banner: 999999,
   button: 999999,
