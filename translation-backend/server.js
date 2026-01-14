@@ -575,7 +575,9 @@ app.post('/analyze', validateAnalyzeRequest, requireValidApiKey, async (req, res
     console.log('📥 POST /analyze');
     console.log('Time:', new Date().toISOString());
 
-    const { text, url = null, useCache = true } = req.body;
+    const { text, url = null, useCache = true, language = 'fr' } = req.body;
+    const normalizedLanguage = language.toLowerCase();
+    const languageName = getLanguageName(normalizedLanguage);
 
     // Smart sampling
     const sampled = smartSample(text, parseInt(process.env.MAX_TEXT_WORDS) || 800);
@@ -634,7 +636,7 @@ app.post('/analyze', validateAnalyzeRequest, requireValidApiKey, async (req, res
             [similar.url]
           );
 
-          await logUsage('analyze', 'fr', true, 0, 0);
+          await logUsage('analyze', normalizedLanguage, true, 0, 0);
 
           return res.json({
             cefr_level: similar.cefr_level,
@@ -642,6 +644,7 @@ app.post('/analyze', validateAnalyzeRequest, requireValidApiKey, async (req, res
             vocabulary_examples: [],
             grammar_features: [],
             reasoning: `Similar to previously analyzed article (${(similar.similarity * 100).toFixed(1)}% match)`,
+            language: normalizedLanguage,
             cached: true,
             cache_type: 'vector_similarity',
             similar_url: similar.url,
@@ -666,12 +669,12 @@ app.post('/analyze', validateAnalyzeRequest, requireValidApiKey, async (req, res
         max_tokens: 512,
         messages: [{
           role: 'user',
-          content: `Assess CEFR level (A1-C2) of French text. Consider vocabulary complexity, grammar structures, sentence complexity.
+          content: `Assess CEFR level (A1-C2) of ${languageName} text. Consider vocabulary complexity, grammar structures, sentence complexity.
 
-French text:
-${sampled.text}
+${languageName} text:
+"${sampled.text}"
 
-Return JSON only:
+Return ONLY valid JSON:
 {"cefr_level":"B2","confidence":"high","vocabulary_examples":["word1","word2","word3"],"grammar_features":["feature1","feature2"],"reasoning":"Brief explanation"}`
         }]
       })
@@ -680,7 +683,7 @@ Return JSON only:
     if (!response.ok) {
       const error = await response.text();
       console.error('❌ AI API error:', error);
-      await logUsage('analyze', 'fr', false, 0, 0);
+      await logUsage('analyze', normalizedLanguage, false, 0, 0);
       return res.status(500).json({ error: 'Analysis service error' });
     }
 
@@ -714,7 +717,7 @@ Return JSON only:
            ON CONFLICT (text_hash) DO UPDATE SET
            hit_count = analyses.hit_count + 1,
            last_accessed = NOW()`,
-          [textHash, url, 'fr', result.cefr_level, result.confidence,
+          [textHash, url, normalizedLanguage, result.cefr_level, result.confidence,
            JSON.stringify(result.vocabulary_examples), JSON.stringify(result.grammar_features),
            result.reasoning, sampled.originalLength]
         );
@@ -751,12 +754,12 @@ Return JSON only:
       }
     }
 
-    await logUsage('analyze', 'fr', false, inputTokens + outputTokens, cost);
+    await logUsage('analyze', normalizedLanguage, false, inputTokens + outputTokens, cost);
 
     console.log('✅ Analysis complete');
     console.log('========================================\n');
 
-    res.json({ ...result, cached: false });
+    res.json({ ...result, language: normalizedLanguage, cached: false });
 
   } catch (error) {
     console.error('❌ Error:', error.message);
