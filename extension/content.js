@@ -705,6 +705,27 @@
     });
   }
 
+  /**
+   * Get the effective language code for API calls
+   * Respects manual override, falls back to detected, then French as default
+   * @returns {string} ISO 639-1 language code
+   */
+  function getEffectiveLanguage() {
+    if (manualLanguageOverride && SUPPORTED_LANGUAGES[manualLanguageOverride]) {
+      return manualLanguageOverride;
+    }
+    return currentLanguage ? currentLanguage.code : 'fr'; // fallback to French
+  }
+
+  /**
+   * Get the effective language name for display
+   * @returns {string} Full language name
+   */
+  function getEffectiveLanguageName() {
+    const code = getEffectiveLanguage();
+    return SUPPORTED_LANGUAGES[code] || 'French';
+  }
+
   // ========================================
   // ANALYZE ARTICLE
   // ========================================
@@ -979,7 +1000,7 @@
           body: JSON.stringify({
             word: text,
             context: sentence.substring(0, 200),
-            language: 'fr'
+            language: getEffectiveLanguage()
           })
         });
 
@@ -1051,7 +1072,7 @@
           body: JSON.stringify({
             word,
             context: sentence.substring(0, 200),
-            language: 'fr'
+            language: getEffectiveLanguage()
           })
         });
 
@@ -1074,7 +1095,7 @@
           translation: definition.translation,
           definition: definition.definition,
           cefrLevel: definition.cefr,
-          language: 'fr',
+          language: getEffectiveLanguage(),
           sourceUrl: window.location.href,
           sourceTitle: document.title,
           tags: []
