@@ -1,14 +1,38 @@
-const BACKEND_URL = 'http://localhost:3000';
+// Default backend URL (for development)
+const DEFAULT_BACKEND_URL = 'http://localhost:3000';
+
+// Get backend URL from storage, falling back to default
+async function getBackendUrl() {
+  return new Promise((resolve) => {
+    chrome.storage.sync.get(['backendUrl'], (result) => {
+      resolve(result.backendUrl || DEFAULT_BACKEND_URL);
+    });
+  });
+}
 
 // Handle API requests from content script
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === 'API_REQUEST') {
-    console.log('Background: Handling API request to', request.url);
+    // Handle the request asynchronously to get the backend URL
+    (async () => {
+      const backendUrl = await getBackendUrl();
+      const url = request.url.startsWith('http') ? request.url : `${backendUrl}${request.url}`;
+      console.log('Background: Handling API request to', url, '(backend:', backendUrl, ')');
 
-    // Make the fetch request from the background script (bypasses Private Network Access)
-    fetch(request.url, request.options)
+      // Make the fetch request from the background script (bypasses Private Network Access)
+      fetch(url, request.options)
       .then(async response => {
-        const data = await (request.expectJson ? response.json() : response.text());
+        console.log('Background: Response received, status:', response.status, 'ok:', response.ok);
+
+        let data;
+        try {
+          data = await (request.expectJson ? response.json() : response.text());
+          console.log('Background: Data parsed successfully');
+        } catch (err) {
+          console.error('Background: Failed to parse response:', err);
+          data = { error: 'Failed to parse response' };
+        }
+
         sendResponse({
           ok: response.ok,
           status: response.status,
@@ -19,9 +43,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         console.error('Background: Fetch error:', error);
         sendResponse({
           ok: false,
+          status: 500,
           error: error.message
         });
       });
+    })();
 
     // Return true to indicate we'll send response asynchronously
     return true;

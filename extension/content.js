@@ -31,12 +31,14 @@
   }
   window.readAndLearnInjected = true;
 
-  const BACKEND_URL = 'http://localhost:3000';
+  // Backend URL is now configured via chrome.storage.sync and handled by background.js
+  // All API requests go through message passing to background.js
 
   // Helper function to make API requests via background script (bypasses Private Network Access)
   async function apiFetch(endpoint, options = {}) {
     return new Promise((resolve, reject) => {
-      const url = `${BACKEND_URL}${endpoint}`;
+      // Pass endpoint directly - background.js will prepend the configured backend URL
+      const url = endpoint;
 
       chrome.runtime.sendMessage({
         type: 'API_REQUEST',
@@ -49,22 +51,18 @@
           return;
         }
 
-        if (!response.ok) {
-          // Create a response-like object for consistency
-          resolve({
-            ok: false,
-            status: response.status,
-            json: async () => response.data,
-            text: async () => JSON.stringify(response.data)
-          });
-        } else {
-          resolve({
-            ok: true,
-            status: response.status,
-            json: async () => response.data,
-            text: async () => JSON.stringify(response.data)
-          });
+        if (!response) {
+          reject(new Error('No response from background script'));
+          return;
         }
+
+        // Create a response-like object for consistency with fetch API
+        resolve({
+          ok: response.ok || false,
+          status: response.status || 500,
+          json: async () => response.data || { error: response.error || 'Unknown error' },
+          text: async () => JSON.stringify(response.data || { error: response.error || 'Unknown error' })
+        });
       });
     });
   }
