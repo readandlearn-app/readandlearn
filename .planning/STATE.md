@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-01-14)
 
 **Core value:** Production-ready, self-hostable infrastructure that anyone can deploy and use to learn languages by reading real content.
-**Current focus:** Phase 3 — PDF Reading in progress
+**Current focus:** Phase 3 — PDF Reading complete, ready for Phase 4
 
 ## Current Position
 
-Phase: 3 of 7 (PDF Reading)
-Plan: 1 of 2 in current phase
-Status: In progress
-Last activity: 2026-01-14 — Completed 03-01-PLAN.md
+Phase: 3 of 7 (PDF Reading) — COMPLETE
+Plan: 2 of 2 in current phase — COMPLETE
+Status: Phase complete
+Last activity: 2026-01-15 — Completed 03-02-PLAN.md
 
-Progress: █████░░░░░ 36%
+Progress: ██████░░░░ 43%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 5
-- Average duration: 16 min
-- Total execution time: 1.27 hours
+- Total plans completed: 6
+- Average duration: 14 min
+- Total execution time: 1.38 hours
 
 **By Phase:**
 
@@ -29,11 +29,11 @@ Progress: █████░░░░░ 36%
 |-------|-------|-------|----------|
 | 1 | 2/2 | 48 min | 24 min |
 | 2 | 2/2 | 26 min | 13 min |
-| 3 | 1/2 | 2 min | 2 min |
+| 3 | 2/2 | 7 min | 3.5 min |
 
 **Recent Trend:**
-- Last 5 plans: 01-02 (42 min), 02-01 (3 min), 02-02 (23 min), 03-01 (2 min)
-- Trend: Phase 3 in progress - PDF.js integrated
+- Last 5 plans: 02-01 (3 min), 02-02 (23 min), 03-01 (2 min), 03-02 (5 min)
+- Trend: Phase 3 complete - PDF reading fully functional
 
 ## Accumulated Context
 
@@ -60,6 +60,8 @@ Recent decisions affecting current work:
 | 03-01 | PDF.js v4.x not v5.x | v5.x requires Promise.withResolvers (newer Chrome only) |
 | 03-01 | Lazy load PDF.js | Avoid loading library on non-PDF pages |
 | 03-01 | 50 page extraction limit | Prevent performance issues with large PDFs |
+| 03-02 | analyzeContent() dispatcher | Single entry point for PDF vs article detection |
+| 03-02 | 100 char minimum for PDF | Catch scanned/image-only PDFs with helpful error |
 
 ### Deferred Issues
 
@@ -71,6 +73,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-01-14T20:22:59Z
-Stopped at: Completed 03-01-PLAN.md (PDF.js Setup + Text Extraction)
+Last session: 2026-01-15
+Stopped at: Completed Phase 3 (PDF Reading)
 Resume file: None
