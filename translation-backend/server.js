@@ -229,6 +229,160 @@ function requireValidApiKey(req, res, next) {
   next();
 }
 
+// ========================================
+// INPUT VALIDATION MIDDLEWARE
+// ========================================
+
+// Maximum text length configurable via environment (default: 50000 chars)
+const MAX_TEXT_LENGTH = parseInt(process.env.MAX_TEXT_LENGTH) || 50000;
+
+/**
+ * Helper: Sanitize string input
+ * Trims whitespace and removes null bytes
+ */
+function sanitizeString(str) {
+  if (typeof str !== 'string') return str;
+  return str.trim().replace(/\0/g, '');
+}
+
+/**
+ * Helper: Check if string contains HTML tags or script content
+ */
+function containsHtmlOrScript(str) {
+  if (typeof str !== 'string') return false;
+  // Check for HTML tags
+  const htmlPattern = /<[^>]*>/;
+  // Check for common script injection patterns
+  const scriptPattern = /(javascript:|on\w+=|<script)/i;
+  return htmlPattern.test(str) || scriptPattern.test(str);
+}
+
+/**
+ * Middleware: Validate POST /analyze requests
+ */
+function validateAnalyzeRequest(req, res, next) {
+  const { text } = req.body;
+
+  // Check text exists and is a string
+  if (!text || typeof text !== 'string') {
+    return res.status(400).json({
+      error: 'Bad Request',
+      message: 'Text field is required and must be a string'
+    });
+  }
+
+  const trimmedText = text.trim();
+
+  // Check minimum length (10 chars)
+  if (trimmedText.length < 10) {
+    return res.status(400).json({
+      error: 'Bad Request',
+      message: 'Text must be at least 10 characters long'
+    });
+  }
+
+  // Check maximum length
+  if (trimmedText.length > MAX_TEXT_LENGTH) {
+    return res.status(400).json({
+      error: 'Bad Request',
+      message: `Text too long. Maximum ${MAX_TEXT_LENGTH} characters allowed (received ${trimmedText.length})`
+    });
+  }
+
+  // Check text contains actual words (not just whitespace/symbols)
+  const wordPattern = /[a-zA-Z\u00C0-\u024F]{2,}/; // At least one word with 2+ letters (including accented chars)
+  if (!wordPattern.test(trimmedText)) {
+    return res.status(400).json({
+      error: 'Bad Request',
+      message: 'Text must contain actual words, not just symbols or whitespace'
+    });
+  }
+
+  next();
+}
+
+/**
+ * Middleware: Validate POST /define requests
+ */
+function validateDefineRequest(req, res, next) {
+  const { word } = req.body;
+
+  // Check word exists and is a string
+  if (!word || typeof word !== 'string') {
+    return res.status(400).json({
+      error: 'Bad Request',
+      message: 'Word field is required and must be a string'
+    });
+  }
+
+  const trimmedWord = word.trim();
+
+  // Check minimum length (1 char)
+  if (trimmedWord.length < 1) {
+    return res.status(400).json({
+      error: 'Bad Request',
+      message: 'Word cannot be empty'
+    });
+  }
+
+  // Check maximum length (100 chars)
+  if (trimmedWord.length > 100) {
+    return res.status(400).json({
+      error: 'Bad Request',
+      message: 'Word too long. Maximum 100 characters allowed'
+    });
+  }
+
+  // Check for HTML tags or script content
+  if (containsHtmlOrScript(trimmedWord)) {
+    return res.status(400).json({
+      error: 'Bad Request',
+      message: 'Word contains invalid characters (HTML or script content not allowed)'
+    });
+  }
+
+  next();
+}
+
+/**
+ * Middleware: Validate POST /deck/add requests
+ */
+function validateDeckRequest(req, res, next) {
+  const { userId, word, translation, contextSentence } = req.body;
+
+  // Check userId is present
+  if (!userId || typeof userId !== 'string') {
+    return res.status(400).json({
+      error: 'Bad Request',
+      message: 'userId is required and must be a string'
+    });
+  }
+
+  // Check word is present
+  if (!word || typeof word !== 'string') {
+    return res.status(400).json({
+      error: 'Bad Request',
+      message: 'Word is required and must be a string'
+    });
+  }
+
+  // Sanitize string inputs
+  req.body.userId = sanitizeString(userId);
+  req.body.word = sanitizeString(word);
+  if (translation) req.body.translation = sanitizeString(translation);
+  if (contextSentence) req.body.contextSentence = sanitizeString(contextSentence);
+
+  // Validate word doesn't contain malicious content
+  if (containsHtmlOrScript(req.body.word)) {
+    return res.status(400).json({
+      error: 'Bad Request',
+      message: 'Word contains invalid characters'
+    });
+  }
+
+  next();
+}
+
 // Utility: Calculate SHA-256 hash (secure hashing)
 // Note: Upgraded from MD5 to SHA-256 to prevent collision attacks
 function calculateHash(text) {
@@ -372,17 +526,13 @@ app.get('/health', async (req, res) => {
 // ========================================
 // ENDPOINT: CEFR Analysis (Optimized)
 // ========================================
-app.post('/analyze', requireValidApiKey, async (req, res) => {
+app.post('/analyze', validateAnalyzeRequest, requireValidApiKey, async (req, res) => {
   try {
     console.log('\n========================================');
     console.log('📥 POST /analyze');
     console.log('Time:', new Date().toISOString());
 
     const { text, url = null, useCache = true } = req.body;
-
-    if (!text) {
-      return res.status(400).json({ error: 'Text is required' });
-    }
 
     // Smart sampling
     const sampled = smartSample(text, parseInt(process.env.MAX_TEXT_WORDS) || 800);
@@ -679,13 +829,9 @@ async function getClaudeDefinition(word, context = '', language = 'fr') {
 // ========================================
 // ENDPOINT: Define Word (Dictionary-First Routing)
 // ========================================
-app.post('/define', requireValidApiKey, async (req, res) => {
+app.post('/define', validateDefineRequest, requireValidApiKey, async (req, res) => {
   try {
     const { word, context = '', language = 'fr', targetLanguage = 'en', forceAI = false } = req.body;
-
-    if (!word) {
-      return res.status(400).json({ error: 'Word is required' });
-    }
 
     console.log(`📖 Define: "${word}" (${language})`);
 
@@ -904,7 +1050,7 @@ app.post('/define-batch', requireValidApiKey, async (req, res) => {
 // ========================================
 // ENDPOINT: Add to Deck
 // ========================================
-app.post('/deck/add', async (req, res) => {
+app.post('/deck/add', validateDeckRequest, async (req, res) => {
   try {
     const {
       userId,
@@ -919,10 +1065,6 @@ app.post('/deck/add', async (req, res) => {
       sourceTitle,
       tags = []
     } = req.body;
-
-    if (!userId || !word) {
-      return res.status(400).json({ error: 'userId and word are required' });
-    }
 
     const result = await pool.query(
       `INSERT INTO deck_cards
