@@ -97,6 +97,8 @@
   let userAnswers = {}; // Stores user's answers {questionId: answer}
   let quizSubmitted = false; // Whether user has checked answers
   let currentLanguage = null; // { code: 'fr', name: 'French', confidence: 80, isReliable: true }
+  // Load manual language override from localStorage
+  let manualLanguageOverride = localStorage.getItem('rl-language-override') || null;
 
   console.log('✅ Read & Learn activated!');
 
@@ -368,8 +370,29 @@
     attachMenuListeners();
   }
 
+  function renderLanguageSelector() {
+    const current = manualLanguageOverride || 'auto';
+    const detectedInfo = currentLanguage ? ` (detected: ${currentLanguage.name})` : '';
+
+    let options = `<option value="auto"${current === 'auto' ? ' selected' : ''}>Auto-detect${detectedInfo}</option>`;
+    for (const [code, name] of Object.entries(SUPPORTED_LANGUAGES)) {
+      const selected = current === code ? ' selected' : '';
+      options += `<option value="${code}"${selected}>${name}</option>`;
+    }
+
+    return `
+      <div style="margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid rgba(0,0,0,0.1);">
+        <label style="display: block; font-size: 11px; color: #888; margin-bottom: 4px;">Article Language</label>
+        <select id="rl-language-select" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #ddd; background: white; color: #333; font-size: 13px; cursor: pointer;">
+          ${options}
+        </select>
+      </div>
+    `;
+  }
+
   function renderInitialView() {
     return `
+      ${renderLanguageSelector()}
       <div style="text-align: center; padding: 40px 20px;">
         <div style="font-size: 48px; margin-bottom: 20px;">📚</div>
         <div style="font-size: 18px; font-weight: 600; margin-bottom: 12px; color: #333;">Analyze This Page</div>
@@ -437,6 +460,7 @@
     const safeReasoning = sanitizeForDisplay(currentAnalysis.reasoning);
 
     return `
+      ${renderLanguageSelector()}
       <div style="margin-bottom: 24px;">
         <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
           <div style="font-size: 36px; font-weight: 900; color: ${getCefrColor(currentAnalysis.cefr_level)};">${safeCefrLevel}</div>
@@ -572,6 +596,7 @@
     const viewDeckBtn = document.getElementById('rl-view-deck-btn');
     const selectionModeBtn = document.getElementById('rl-selection-mode-btn');
     const generateQuestionsBtn = document.getElementById('rl-generate-questions-btn');
+    const langSelect = document.getElementById('rl-language-select');
 
     if (analyzeBtn) {
       analyzeBtn.addEventListener('click', analyzeArticle);
@@ -587,6 +612,26 @@
 
     if (generateQuestionsBtn) {
       generateQuestionsBtn.addEventListener('click', generateQuestions);
+    }
+
+    // Language selector change handler
+    if (langSelect) {
+      langSelect.addEventListener('change', (e) => {
+        const value = e.target.value;
+        if (value === 'auto') {
+          manualLanguageOverride = null;
+          localStorage.removeItem('rl-language-override');
+          console.log('🌐 Language set to auto-detect');
+        } else {
+          manualLanguageOverride = value;
+          localStorage.setItem('rl-language-override', value);
+          console.log(`🌐 Language manually set to: ${SUPPORTED_LANGUAGES[value]} (${value})`);
+        }
+        // Re-analyze if article was already analyzed
+        if (currentAnalysis) {
+          analyzeArticle();
+        }
+      });
     }
   }
 
@@ -677,19 +722,36 @@
       const text = articleElement.innerText;
       console.log(`Found article with ${text.length} characters`);
 
-      // Detect language using Chrome's built-in API
-      showBanner('🔄 Detecting language...', 'loading');
-      const detected = await detectLanguage(text);
+      // Check for manual language override first
+      let effectiveLangCode;
+      let effectiveLangName;
 
-      if (!detected) {
-        showBanner('❌ Unsupported language detected. Supported: EU languages (French, Spanish, German, etc.)', 'error');
-        return;
+      if (manualLanguageOverride && SUPPORTED_LANGUAGES[manualLanguageOverride]) {
+        // Use manual override
+        effectiveLangCode = manualLanguageOverride;
+        effectiveLangName = SUPPORTED_LANGUAGES[manualLanguageOverride];
+        console.log(`Using manual language override: ${effectiveLangName} (${effectiveLangCode})`);
+
+        // Still detect for display purposes but don't use it
+        const detected = await detectLanguage(text);
+        currentLanguage = detected; // Store for display in selector
+      } else {
+        // Detect language using Chrome's built-in API
+        showBanner('🔄 Detecting language...', 'loading');
+        const detected = await detectLanguage(text);
+
+        if (!detected) {
+          showBanner('❌ Unsupported language detected. Supported: EU languages (French, Spanish, German, etc.)', 'error');
+          return;
+        }
+
+        currentLanguage = detected;
+        effectiveLangCode = detected.code;
+        effectiveLangName = detected.name;
+        console.log(`Detected language: ${detected.name} (${detected.code}) with ${detected.confidence}% confidence`);
       }
 
-      currentLanguage = detected;
-      console.log(`Detected language: ${detected.name} (${detected.code}) with ${detected.confidence}% confidence`);
-
-      showBanner(`🔄 Analyzing ${detected.name} level... (this may take 5-10 seconds)`, 'loading');
+      showBanner(`🔄 Analyzing ${effectiveLangName} level... (this may take 5-10 seconds)`, 'loading');
 
       const response = await apiFetch('/analyze', {
         method: 'POST',
@@ -697,7 +759,7 @@
         body: JSON.stringify({
           text,
           url: window.location.href,
-          language: detected.code
+          language: effectiveLangCode
         })
       });
 
