@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-01-14)
 
 **Core value:** Production-ready, self-hostable infrastructure that anyone can deploy and use to learn languages by reading real content.
-**Current focus:** Phase 6 — Deployment Templates (next)
+**Current focus:** Phase 7 — Housekeeping (next)
 
 ## Current Position
 
-Phase: 5 of 7 (Design System)
-Plan: 2 of 2 in current phase
+Phase: 6 of 7 (Deployment Templates)
+Plan: 1 of 1 in current phase
 Status: Complete
-Last activity: 2026-01-15 — Completed 05-02-PLAN.md (Design System Documentation)
+Last activity: 2026-01-15 — Completed 06-01-PLAN.md (Deployment Templates)
 
-Progress: ████████░░ 71%
+Progress: █████████░ 86%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 10
-- Average duration: 10 min
-- Total execution time: 1.7 hours
+- Total plans completed: 11
+- Average duration: 9 min
+- Total execution time: 1.8 hours
 
 **By Phase:**
 
@@ -32,10 +32,11 @@ Progress: ████████░░ 71%
 | 3 | 2/2 | 7 min | 3.5 min |
 | 4 | 3/3 | 16 min | 5.3 min |
 | 5 | 2/2 | 6 min | 3 min |
+| 6 | 1/1 | 4 min | 4 min |
 
 **Recent Trend:**
-- Last 5 plans: 04-02 (8 min), 04-03 (5 min), 05-01 (3 min), 05-02 (3 min)
-- Trend: Phase 5 Design System complete, tokens extracted and documented
+- Last 5 plans: 04-03 (5 min), 05-01 (3 min), 05-02 (3 min), 06-01 (4 min)
+- Trend: Phase 6 Deployment complete, Railway and Render templates ready
 
 ## Accumulated Context
 
@@ -74,6 +75,8 @@ Recent decisions affecting current work:
 | 04-03 | ui.js consolidation | All UI rendering functions kept together for consistency |
 | 05-01 | Flat CEFR object | COLORS.cefr.A1 pattern for simple level-based access |
 | 05-02 | Co-located docs | DESIGN.md lives with design.js in modules/ |
+| 06-01 | Dockerfile over buildpack | Both platforms use existing Dockerfile for consistency |
+| 06-01 | Starter plans default | Affordable ~$5-7/month for self-hosted users |
 
 ### Deferred Issues
 
@@ -86,5 +89,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-01-15
-Stopped at: Completed 05-02-PLAN.md (Design System Documentation) — Phase 5 Complete
+Stopped at: Completed 06-01-PLAN.md (Deployment Templates) — Phase 6 Complete
 Resume file: None
