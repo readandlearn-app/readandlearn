@@ -5,40 +5,17 @@ const rateLimit = require('express-rate-limit');
 const crypto = require('crypto');
 const { Pool } = require('pg');
 
+// Import validation utilities
+const {
+  SUPPORTED_LANGUAGES,
+  sanitizeString,
+  containsHtmlOrScript,
+  isValidLanguage,
+  getLanguageName
+} = require('./utils/validation');
+
 const app = express();
 const PORT = process.env.PORT || 3001;
-
-// ========================================
-// LANGUAGE CONFIGURATION
-// ========================================
-
-// All 24 EU CEFR official languages
-const SUPPORTED_LANGUAGES = {
-  bg: 'Bulgarian', hr: 'Croatian', cs: 'Czech', da: 'Danish',
-  nl: 'Dutch', en: 'English', et: 'Estonian', fi: 'Finnish',
-  fr: 'French', de: 'German', el: 'Greek', hu: 'Hungarian',
-  ga: 'Irish', it: 'Italian', lv: 'Latvian', lt: 'Lithuanian',
-  mt: 'Maltese', pl: 'Polish', pt: 'Portuguese', ro: 'Romanian',
-  sk: 'Slovak', sl: 'Slovenian', es: 'Spanish', sv: 'Swedish'
-};
-
-/**
- * Check if a language code is supported
- * @param {string} code - ISO 639-1 language code
- * @returns {boolean}
- */
-function isValidLanguage(code) {
-  return code && SUPPORTED_LANGUAGES[code.toLowerCase()];
-}
-
-/**
- * Get the display name for a language code
- * @param {string} code - ISO 639-1 language code
- * @returns {string} Language name or the code if not found
- */
-function getLanguageName(code) {
-  return SUPPORTED_LANGUAGES[code.toLowerCase()] || code;
-}
 
 // ========================================
 // CORS CONFIGURATION
@@ -268,26 +245,7 @@ function requireValidApiKey(req, res, next) {
 // Maximum text length configurable via environment (default: 50000 chars)
 const MAX_TEXT_LENGTH = parseInt(process.env.MAX_TEXT_LENGTH) || 50000;
 
-/**
- * Helper: Sanitize string input
- * Trims whitespace and removes null bytes
- */
-function sanitizeString(str) {
-  if (typeof str !== 'string') return str;
-  return str.trim().replace(/\0/g, '');
-}
-
-/**
- * Helper: Check if string contains HTML tags or script content
- */
-function containsHtmlOrScript(str) {
-  if (typeof str !== 'string') return false;
-  // Check for HTML tags
-  const htmlPattern = /<[^>]*>/;
-  // Check for common script injection patterns
-  const scriptPattern = /(javascript:|on\w+=|<script)/i;
-  return htmlPattern.test(str) || scriptPattern.test(str);
-}
+// sanitizeString and containsHtmlOrScript are now imported from ./utils/validation
 
 /**
  * Middleware: Validate POST /analyze requests
