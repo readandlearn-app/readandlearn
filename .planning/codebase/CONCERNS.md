@@ -1,154 +1,171 @@
 # Codebase Concerns
 
-**Analysis Date:** 2026-01-14
+**Analysis Date:** 2026-01-15
 
 ## Tech Debt
 
-**Monolithic Files:**
-- Issue: `extension/content.js` is 1813 lines, `translation-backend/server.js` is 1237 lines
-- Why: Rapid MVP development without modularization
-- Impact: Hard to maintain, test, and reason about
-- Fix approach: Split into logical modules (ui.js, api.js, state.js for extension; routes/, services/ for backend)
+**N+1 Query Pattern in Batch Define:**
+- Issue: Individual database queries per word in batch operations
+- Files: `translation-backend/routes/define.js` (lines 147-152)
+- Why: Implemented for simplicity during initial development
+- Impact: Performance degrades with large word batches (100 words = 100+ queries)
+- Fix approach: Use `WHERE word IN (...)` single query pattern
 
-**Duplicated AI API Call Logic:**
-- Issue: Claude API call pattern repeated 4 times in `translation-backend/server.js`
-- Files: Lines 278-299, 450-466, 646-662, 984-998
-- Why: Each feature added independently
-- Impact: Changes to API handling require 4 updates
-- Fix approach: Extract to shared `callClaudeAPI()` helper function
+**Inconsistent Error Response Format:**
+- Issue: Error responses vary in structure across routes
+- Files: All route files in `translation-backend/routes/`
+- Why: Each route developed independently
+- Impact: Frontend must handle multiple error formats
+- Fix approach: Create centralized error handler middleware
 
-**Hardcoded Backend URL:**
-- Issue: `const BACKEND_URL = 'http://localhost:3000'` in two files
-- Files: `extension/background.js` line 1, `extension/content.js` line 34
-- Why: Development convenience
-- Impact: Cannot deploy to production without code changes
-- Fix approach: Use configuration or environment-specific builds
+**Magic Numbers Throughout:**
+- Issue: Hardcoded values scattered in code
+- Files:
+  - `translation-backend/services/claude.js` (line 85) - pricing
+  - `translation-backend/routes/analyze.js` (line 79) - similarity threshold 0.90
+- Why: Quick implementation, values not expected to change
+- Impact: Hard to update pricing, thresholds without code review
+- Fix approach: Centralize constants in config module
 
 ## Known Bugs
 
-**No critical bugs identified during analysis.**
+**No critical bugs detected**
+
+The codebase appears stable. Minor issues noted below in fragile areas.
 
 ## Security Considerations
 
-**Overly Permissive CORS:**
-- Risk: `Access-Control-Allow-Origin: *` allows any origin
-- File: `translation-backend/server.js` line 13
+**Weak User ID Generation:**
+- Risk: User IDs use `Math.random()` which is not cryptographically secure
+- File: `extension/modules/utils.js` (getUserId function)
+- Current mitigation: User IDs only used for vocabulary deck isolation, not auth
+- Recommendations: Use `crypto.randomUUID()` for production
+
+**Environment Variables in Git History:**
+- Risk: `.env` file may have been committed historically with real keys
+- File: `translation-backend/.env` (should be gitignored)
+- Current mitigation: `.env.example` exists as template
+- Recommendations: Audit git history, rotate any exposed keys
+
+**Generic Error Messages Leak Details:**
+- Risk: Some error responses include `error.message` which may expose internals
+- Files: All route error handlers
 - Current mitigation: None
-- Recommendations: Restrict to Chrome extension origin
-
-**Hardcoded Database Credentials:**
-- Risk: Development password exposed in utility script
-- File: `translation-backend/import_frequency_words.js` line 8 (`password: 'dev_password_123'`)
-- Current mitigation: Script not used in production
-- Recommendations: Use environment variables consistently
-
-**XSS Vulnerability in innerHTML:**
-- Risk: Dynamic HTML rendering without sanitization
-- Files: `extension/content.js` lines 222-228, 1689-1696
-- Current mitigation: Data comes from controlled sources
-- Recommendations: Use DOM methods or sanitization library
-
-**Missing Input Validation:**
-- Risk: User selections and DOM text accepted without validation
-- Files: `extension/content.js` lines 759-760, 854
-- Current mitigation: None
-- Recommendations: Validate text length and content type
+- Recommendations: Sanitize error messages before returning to client
 
 ## Performance Bottlenecks
 
-**O(n) DOM Operations per Word:**
-- Problem: `querySelectorAll('div')` called for every word highlight
-- File: `extension/content.js` lines 606-612
-- Measurement: Not profiled, but O(n) with many words
-- Cause: TreeWalker created for each `highlightInElement()` call
-- Improvement path: Single preprocessing pass, reuse walker
+**Embedding Generation Time:**
+- Problem: Local embedding generation takes ~300ms per request
+- File: `translation-backend/services/embeddings.js` (line 37)
+- Measurement: ~300ms per embedding operation
+- Cause: Xenova Transformers model inference on CPU
+- Improvement path: Pre-compute embeddings, use batch processing, or GPU acceleration
 
-**Tooltip Memory Leak:**
-- Problem: Event listeners added without removal, tooltips accumulated
-- File: `extension/content.js` lines 1709-1746
-- Measurement: Memory grows with highlighted words
-- Cause: No cleanup when tooltips removed
-- Improvement path: Track listeners, cleanup on word removal
-
-**Embedding Model Lazy Load:**
-- Problem: First request waits ~5 seconds for model load
-- File: `translation-backend/server.js` lines 61-73
-- Measurement: ~5s delay on first similarity check
-- Cause: Lazy loading on first use
-- Improvement path: Load model on server startup
+**Text Truncation for Embeddings:**
+- Problem: Only first 512 characters used for embeddings
+- File: `translation-backend/services/embeddings.js` (line 37)
+- Measurement: Long articles lose context
+- Cause: Model input limit
+- Improvement path: Chunking strategy or different embedding model
 
 ## Fragile Areas
 
-**Content Script Injection:**
-- File: `extension/content.js` lines 27-32
-- Why fragile: Global flag `readAndLearnInjected` unreliable with async navigation
-- Common failures: Multiple injections in edge cases
-- Safe modification: Add debounce or more robust detection
-- Test coverage: None
+**Three-Tier Caching Logic:**
+- File: `translation-backend/routes/analyze.js` (lines 44-108)
+- Why fragile: Complex state management (hash → similarity → AI) with multiple fallback paths
+- Common failures: Cache miss detection, similarity threshold tuning
+- Safe modification: Add comprehensive logging before changes, write tests
+- Test coverage: No tests - high risk area
 
-**Selection Mode State:**
-- File: `extension/content.js` multiple locations
-- Why fragile: 11+ global variables managing state
-- Common failures: State inconsistency after errors
-- Safe modification: Consolidate into state management pattern
-- Test coverage: None
+**Embeddings Service Disabled Flag:**
+- File: `translation-backend/services/embeddings.js` (line 26)
+- Why fragile: Uses string 'disabled' as flag instead of boolean
+- Common failures: Type confusion, silent failures
+- Safe modification: Refactor to proper state machine or boolean
+- Test coverage: No tests
+
+**Extension Module Import Chain:**
+- File: `extension/content.js` (lines 52-68)
+- Why fragile: If any module import fails, entire extension fails silently
+- Common failures: Module not found, syntax errors in modules
+- Safe modification: Add error boundary with user notification
+- Test coverage: No tests
 
 ## Scaling Limits
 
-**PostgreSQL Caching:**
-- Current capacity: Handles typical single-user workload
-- Limit: No connection pooling configuration visible
-- Symptoms at limit: Database connection exhaustion
-- Scaling path: Configure pool size, add read replicas
+**PostgreSQL Connection Pool:**
+- Current capacity: Default pool size (10 connections)
+- Limit: ~50-100 concurrent users before connection exhaustion
+- Symptoms at limit: Connection timeout errors
+- Scaling path: Increase pool size, add connection pooling (PgBouncer)
 
-**API Rate Limits:**
-- Current capacity: Anthropic tier-dependent
-- Limit: Unknown without account verification
-- Symptoms at limit: 429 errors from Claude API
-- Scaling path: Implement rate limiting, caching helps reduce calls
+**Rate Limiting:**
+- Current capacity: 30 requests per 60 seconds per IP
+- Limit: May be too permissive for expensive AI operations
+- Symptoms at limit: High API costs
+- Scaling path: Per-user rate limiting, tiered limits based on operation cost
 
 ## Dependencies at Risk
 
 **@xenova/transformers:**
-- Risk: Relatively new library, breaking changes possible
-- Impact: Embedding generation would fail
-- Migration plan: Monitor updates, consider alternative libraries
+- Risk: Relatively new library, compatibility with future Node.js versions uncertain
+- Impact: Embedding generation would break
+- Migration plan: Could switch to OpenAI/Voyage embeddings API (paid)
+
+**pg (node-postgres):**
+- Risk: None - stable, well-maintained
+- Note: Current version 8.11.3, latest is ~8.12+
 
 ## Missing Critical Features
 
-**No Rate Limiting:**
-- Problem: API endpoints unprotected from abuse
-- Current workaround: None
-- Blocks: Safe public deployment
-- Implementation complexity: Low (add express-rate-limit)
+**No User Authentication:**
+- Problem: Anyone can access vocabulary decks with known user ID
+- Current workaround: Random user IDs provide obscurity
+- Blocks: Multi-device sync, sharing, premium features
+- Implementation complexity: Medium (add OAuth or email auth)
 
-**No API Key Validation:**
-- Problem: Invalid Claude API key only discovered on first call
-- Current workaround: Health check shows `apiKeyConfigured` but not validated
-- Blocks: Clear error messaging for users
-- Implementation complexity: Low (add startup validation)
+**No Graceful Shutdown:**
+- Problem: No signal handlers for SIGTERM/SIGINT
+- File: `translation-backend/server.js`
+- Current workaround: Relies on Docker/platform restart
+- Blocks: Clean deployments, database connection cleanup
+- Implementation complexity: Low (add process signal handlers)
 
-**No Test Suite:**
-- Problem: Zero test coverage
-- Current workaround: Manual testing
-- Blocks: Safe refactoring of large files
-- Implementation complexity: Medium (need to establish patterns)
+**No Request Timeout:**
+- Problem: Claude API calls have no timeout
+- Files: `translation-backend/routes/analyze.js`, `translation-backend/routes/define.js`
+- Current workaround: Relies on API-side timeouts
+- Blocks: Reliable error handling
+- Implementation complexity: Low (add AbortController with timeout)
 
 ## Test Coverage Gaps
 
-**Critical Paths Untested:**
-- What's not tested: CEFR analysis flow, deck operations, question generation
-- Risk: Regressions undetected
+**Routes Not Tested:**
+- What's not tested: All route handlers (`/analyze`, `/define`, `/deck`, `/questions`)
+- Risk: Breaking changes undetected
 - Priority: High
-- Difficulty to test: Medium (API mocking required)
+- Difficulty to test: Medium (need to mock database and Claude API)
 
-**Utility Functions Untested:**
-- What's not tested: `calculateHash()`, `smartSample()`, `lookupDictionary()`
-- Risk: Edge cases not covered
+**Caching Logic Not Tested:**
+- What's not tested: Three-tier cache flow (hash → similarity → AI fallback)
+- Risk: Cache corruption, missed optimizations
+- Priority: High
+- Difficulty to test: Medium (need to set up test database with pgvector)
+
+**Extension Modules Not Tested:**
+- What's not tested: All extension modules (`api.js`, `ui.js`, `language.js`)
+- Risk: UI bugs, API communication failures
 - Priority: Medium
-- Difficulty to test: Low (pure functions)
+- Difficulty to test: High (need Chrome extension testing framework)
+
+**Error Scenarios Not Tested:**
+- What's not tested: API rate limits, database failures, network errors
+- Risk: Silent failures in production
+- Priority: Medium
+- Difficulty to test: Medium (mock error responses)
 
 ---
 
-*Concerns audit: 2026-01-14*
+*Concerns audit: 2026-01-15*
 *Update as issues are fixed or new ones discovered*

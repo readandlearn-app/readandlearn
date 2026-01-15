@@ -1,129 +1,144 @@
 # Architecture
 
-**Analysis Date:** 2026-01-14
+**Analysis Date:** 2026-01-15
 
 ## Pattern Overview
 
-**Overall:** Client-Server Architecture (Chrome Extension + RESTful Backend)
+**Overall:** Client-Server Distributed System with Chrome Extension Frontend
 
 **Key Characteristics:**
-- Two-tier distributed architecture
-- Chrome Extension (MV3) as client
-- Node.js/Express REST API backend
-- PostgreSQL with vector embeddings for intelligent caching
-- Cost-optimized with three-tier caching strategy
+- Chrome extension (Manifest V3) + Node.js backend
+- Service-oriented backend with dependency injection
+- Three-tier intelligent caching (hash, semantic similarity, AI fallback)
+- Cost-optimized AI integration with local ML embeddings
 
 ## Layers
 
-**Presentation Layer (Chrome Extension):**
-- Purpose: UI rendering, user interaction, state management
-- Contains: `extension/content.js` (1813 lines), `extension/background.js` (63 lines)
-- Depends on: Backend API via message passing
-- Used by: End users interacting with French articles
+**Frontend Layer (Chrome Extension):**
+- Purpose: User interaction, content script injection, language detection
+- Contains: UI rendering, PDF processing, API communication
+- Location: `extension/`
+- Depends on: Backend API for analysis and definitions
+- Used by: End users via Chrome browser
 
-**API Layer (Express Server):**
-- Purpose: HTTP request handling, CORS, routing
-- Contains: Route handlers in `translation-backend/server.js`
-- Depends on: Service functions, PostgreSQL pool
-- Used by: Chrome extension via REST calls
+**API Layer (Express Routes):**
+- Purpose: HTTP request handling, input validation, response serialization
+- Contains: Route handlers, request validation
+- Location: `translation-backend/routes/`
+- Depends on: Services layer, Middleware layer
+- Used by: Frontend extension via fetch requests
 
-**Service Layer (Embedded in server.js):**
-- Purpose: Business logic for CEFR analysis, definitions, questions
-- Contains: Functions like `calculateHash()`, `generateEmbedding()`, `smartSample()`, `lookupDictionary()`
-- Depends on: PostgreSQL pool, Claude AI API, Xenova transformers
-- Used by: API route handlers
+**Services Layer:**
+- Purpose: Core business logic, external API integration
+- Contains: Claude API client, embeddings, dictionary, database operations
+- Location: `translation-backend/services/`
+- Depends on: Database, External APIs (Anthropic)
+- Used by: Route handlers
 
-**Data Access Layer:**
-- Purpose: Persistent storage and caching
-- Contains: PostgreSQL tables (analyses, deck_cards, vocabulary_cache, etc.)
-- Depends on: pg Pool client
-- Used by: Service layer functions
+**Middleware Layer:**
+- Purpose: Cross-cutting concerns (auth, validation, rate limiting)
+- Contains: API key validation, CORS, rate limiting, request validation
+- Location: `translation-backend/middleware/`
+- Depends on: Configuration
+- Used by: Express router before route handlers
+
+**Data Layer:**
+- Purpose: Persistence, caching, similarity search
+- Contains: PostgreSQL with pgvector for vector similarity
+- Location: `translation-backend/services/database.js`, `translation-backend/init.sql`
+- Depends on: PostgreSQL 16 + pgvector extension
+- Used by: Services layer
 
 ## Data Flow
 
-**Article Analysis Flow:**
+**CEFR Analysis Request:**
 
-1. User clicks R/L button on page
-2. Content script calls `detectArticle()` to find main content
-3. `isFrench()` validates language
-4. Extension sends request via `background.js` proxy (bypasses CORS)
-5. Backend `POST /analyze` receives request
-6. `smartSample()` reduces text to 800 words
-7. `calculateHash()` creates SHA-256 for cache lookup
-8. Check `analyses` table for exact match (Tier 1)
-9. Check `article_embeddings` for 90% similarity (Tier 2)
-10. If miss, call Claude AI for full CEFR analysis (Tier 3)
-11. Store result and embedding for future cache hits
-12. Return analysis to extension for display
+1. User selects text in browser
+2. Extension detects language (`extension/modules/language.js`)
+3. API request via background worker (`extension/background.js`)
+4. POST /analyze received (`translation-backend/routes/analyze.js`)
+5. Middleware validates input, checks API key
+6. Three-tier cache lookup:
+   - Hash cache (exact match) in `analyses` table
+   - Vector similarity search via pgvector (90% threshold)
+   - Claude API fallback if no cache hit
+7. Response cached for future requests
+8. Result returned with CEFR level, vocabulary, grammar features
 
 **State Management:**
-- localStorage: User ID, mode state, button position
-- In-memory: currentAnalysis, currentQuestions, userAnswers
-- Database: All persistent data (deck cards, questions, analytics)
+- File-based caching in PostgreSQL (analyses, article_embeddings tables)
+- Chrome extension uses `localStorage` for user preferences
+- User vocabulary stored in `deck_cards` table with user_id
+- No in-memory state persistence between requests
 
 ## Key Abstractions
 
-**Caching Strategy (Three-Tier):**
-- Purpose: Minimize expensive AI API calls
-- Tier 1: SHA-256 hash exact match (FREE, instant)
-- Tier 2: Xenova embeddings + pgvector similarity search (FREE, fast)
-- Tier 3: Claude AI API call (paid, fallback only)
-- Pattern: Cost optimization through intelligent caching
+**Service:**
+- Purpose: Encapsulate business logic for specific domains
+- Examples: `translation-backend/services/claude.js`, `translation-backend/services/embeddings.js`, `translation-backend/services/dictionary.js`
+- Pattern: Module exports with dependency injection via `init()` method
 
-**Dictionary Lookup:**
-- Purpose: Word definition routing
-- Pattern: Dictionary-First approach (free before paid)
-- Flow: vocabulary_cache → french_dictionary → learned_dictionary → Claude AI
-- Location: `translation-backend/server.js` lines 392-491
+**Route Handler:**
+- Purpose: HTTP endpoint implementation
+- Examples: `translation-backend/routes/analyze.js`, `translation-backend/routes/define.js`, `translation-backend/routes/deck.js`
+- Pattern: Express router with middleware chain, init() for dependencies
 
-**API Proxy (Background Script):**
-- Purpose: Bypass Chrome's Private Network Access restrictions
-- Pattern: Message passing from content script to service worker
-- Location: `extension/background.js` lines 4-39
+**Middleware:**
+- Purpose: Request preprocessing and validation
+- Examples: `translation-backend/middleware/validation.js`, `translation-backend/middleware/apiKey.js`, `translation-backend/middleware/rateLimit.js`
+- Pattern: Express middleware function (req, res, next)
+
+**Extension Module:**
+- Purpose: Feature-specific functionality in extension
+- Examples: `extension/modules/api.js`, `extension/modules/ui.js`, `extension/modules/language.js`
+- Pattern: ES Module exports, imported by `extension/content.js`
 
 ## Entry Points
 
-**Backend:**
+**Backend Entry:**
 - Location: `translation-backend/server.js`
-- Triggers: HTTP requests on PORT (default 3000)
-- Responsibilities: Express app initialization, route handling, database connection
+- Triggers: `npm start` or Docker container start
+- Responsibilities: Initialize Express, configure middleware, inject dependencies, start HTTP server
 
-**Extension Content Script:**
-- Location: `extension/content.js`
-- Triggers: Page load (injected via manifest) or icon click
-- Responsibilities: UI rendering, user interaction, API communication
-
-**Extension Background Worker:**
-- Location: `extension/background.js`
-- Triggers: chrome.runtime.onMessage, chrome.action.onClicked
-- Responsibilities: API request proxying, content script injection
+**Extension Entry:**
+- Location: `extension/manifest.json` (declares content script and background worker)
+- Background: `extension/background.js` - Service worker for message routing
+- Content: `extension/content.js` - Injected into web pages, orchestrates modules
+- Triggers: User activates extension on a webpage
 
 ## Error Handling
 
-**Strategy:** Try-catch at route boundaries with console logging
+**Strategy:** Try-catch with logging, graceful degradation
 
 **Patterns:**
-- Backend: HTTP status codes (400, 404, 500) with JSON error messages
-- Frontend: showBanner() for user notifications
-- Graceful fallbacks when embeddings unavailable
-- Console logging with emoji prefixes for debugging
+- Services throw errors with descriptive messages
+- Routes catch errors, log to console, return JSON error response
+- Caching failures are silent (operation continues without caching)
+- Embedding failures disable embeddings gracefully (string flag 'disabled')
+- Extension modules fail silently if imports fail
 
 ## Cross-Cutting Concerns
 
 **Logging:**
-- Console.log with emoji indicators throughout
-- 126 log statements across codebase
-- No structured logging framework
+- Console.log with emoji prefixes for visibility (e.g., `✅`, `❌`, `📥`)
+- No external logging service configured
+- Structured logging for cache hits/misses
 
 **Validation:**
-- Basic input validation at API endpoints
-- Missing comprehensive sanitization
+- `translation-backend/middleware/validation.js` - Input sanitization, HTML/script detection
+- `translation-backend/utils/validation.js` - Reusable validation functions
+- Validates at API boundary before processing
 
-**Caching:**
-- Three-tier strategy (hash → embedding → API)
-- usage_log table tracks cache hits and costs
+**Authentication:**
+- API key validation via `translation-backend/middleware/apiKey.js`
+- Validates CLAUDE_API_KEY against Anthropic API at startup
+- No user authentication (anonymous extension users)
+
+**Rate Limiting:**
+- `translation-backend/middleware/rateLimit.js` using express-rate-limit
+- Configurable via environment variables (default: 30 req/60s)
 
 ---
 
-*Architecture analysis: 2026-01-14*
+*Architecture analysis: 2026-01-15*
 *Update when major patterns change*

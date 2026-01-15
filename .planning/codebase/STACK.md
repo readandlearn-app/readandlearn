@@ -1,75 +1,86 @@
 # Technology Stack
 
-**Analysis Date:** 2026-01-14
+**Analysis Date:** 2026-01-15
 
 ## Languages
 
 **Primary:**
-- JavaScript (ES6+) - All application code (`extension/*.js`, `translation-backend/server.js`)
+- JavaScript (ES6+) - All application code (backend and extension)
 
 **Secondary:**
-- SQL - Database schema and queries (`translation-backend/init.sql`)
+- SQL (PostgreSQL) - Database schema and queries (`translation-backend/init.sql`, `translation-backend/dictionary_migration.sql`)
 
 ## Runtime
 
 **Environment:**
-- Node.js 20.x (Alpine in Docker) - `translation-backend/Dockerfile`
-- Chrome/Chromium browser (extension target) - `extension/manifest.json`
+- Node.js 20.x (LTS) - Backend runtime (`translation-backend/Dockerfile`: FROM node:20-alpine)
+- Chrome Extension Runtime - Manifest V3 (`extension/manifest.json`)
 
 **Package Manager:**
-- npm
+- npm 10.x
 - Lockfile: `translation-backend/package-lock.json` present
 
 ## Frameworks
 
 **Core:**
-- Express.js 4.18.2 - REST API web framework (`translation-backend/package.json`)
+- Express.js 4.18.2 - HTTP server and routing (`translation-backend/server.js`)
 
 **Testing:**
-- Not implemented - No test framework currently configured
+- Vitest 4.0.17 - Unit testing (`translation-backend/vitest.config.js`)
 
 **Build/Dev:**
-- Docker/Docker Compose - Container orchestration (`translation-backend/docker-compose.yml`)
-- No build step required (vanilla JavaScript)
+- No build step required - Vanilla JavaScript (CommonJS backend, ES Modules extension)
+- Docker - Containerization (`translation-backend/Dockerfile`, `translation-backend/docker-compose.yml`)
 
 ## Key Dependencies
 
 **Critical:**
-- @xenova/transformers 2.17.2 - Local ML embeddings for semantic similarity (`translation-backend/package.json`)
-- pg 8.11.3 - PostgreSQL client driver (`translation-backend/package.json`)
-- Claude AI (claude-haiku-4-5-20251001) - LLM for CEFR analysis and definitions
+- `@xenova/transformers` 2.17.2 - Local ML embeddings generation (`translation-backend/services/embeddings.js`)
+- `pg` 8.11.3 - PostgreSQL database driver (`translation-backend/services/database.js`)
+- `express` 4.18.2 - HTTP server framework (`translation-backend/server.js`)
 
 **Infrastructure:**
-- cors 2.8.5 - Cross-origin resource sharing (`translation-backend/package.json`)
-- dotenv 16.3.1 - Environment variable management (`translation-backend/package.json`)
-- PostgreSQL 16 with pgvector - Database with vector similarity search
+- `express-rate-limit` 8.2.1 - Rate limiting (`translation-backend/middleware/rateLimit.js`)
+- `dotenv` 16.3.1 - Environment variable management (`translation-backend/server.js`)
+- `cors` 2.8.5 - CORS middleware (custom implementation in `translation-backend/middleware/cors.js`)
+
+**Extension:**
+- PDF.js - PDF text extraction (`extension/lib/pdf.min.mjs`, `extension/lib/pdf.worker.min.mjs`)
 
 ## Configuration
 
 **Environment:**
-- `.env` files with environment variables (`translation-backend/.env.example`)
-- Required: `CLAUDE_API_KEY`
-- Database: `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`
-- Optional: `ENABLE_CACHING`, `ENABLE_ANALYTICS`, `MAX_TEXT_WORDS`, `VOYAGE_API_KEY`
+- `.env` files for configuration (`translation-backend/.env.example`)
+- Key variables:
+  - `CLAUDE_API_KEY` - Anthropic API authentication (required)
+  - `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` - PostgreSQL connection
+  - `PORT` - Server port (default: 3001)
+  - `ENABLE_CACHING` - Feature flag for caching
+  - `ENABLE_ANALYTICS` - Feature flag for usage tracking
+  - `MAX_TEXT_WORDS` - Token optimization limit (default: 800)
+  - `RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX_REQUESTS` - Rate limiting config
+  - `ALLOWED_ORIGINS` - CORS configuration
 
 **Build:**
+- `translation-backend/vitest.config.js` - Test runner configuration
 - `translation-backend/docker-compose.yml` - Multi-service orchestration
-- `translation-backend/Dockerfile` - Container configuration
-- `extension/manifest.json` - Chrome extension manifest v3
 
 ## Platform Requirements
 
 **Development:**
-- macOS/Linux/Windows (any platform with Node.js and Docker)
+- macOS/Linux/Windows (any platform with Node.js 20+)
+- Docker for PostgreSQL with pgvector extension
 - Chrome browser for extension testing
-- PostgreSQL 16 (via Docker or local installation)
 
 **Production:**
-- Docker container for backend
-- Chrome Web Store for extension distribution
+- Docker container deployment
 - PostgreSQL 16 with pgvector extension
+- Deployment platforms supported:
+  - Railway.app (`translation-backend/railway.json`)
+  - Render.com (`translation-backend/render.yaml`)
+  - Any Docker host
 
 ---
 
-*Stack analysis: 2026-01-14*
+*Stack analysis: 2026-01-15*
 *Update after major dependency changes*

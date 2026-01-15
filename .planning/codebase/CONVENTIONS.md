@@ -1,143 +1,174 @@
 # Coding Conventions
 
-**Analysis Date:** 2026-01-14
+**Analysis Date:** 2026-01-15
 
 ## Naming Patterns
 
 **Files:**
-- camelCase for JavaScript files: `server.js`, `content.js`, `background.js`
-- snake_case for data/utility files: `import_frequency_words.js`, `french_5k.txt`
-- UPPERCASE.md for documentation: `README.md`, `LICENSE`
+- camelCase for all JavaScript files (`apiKey.js`, `rateLimit.js`, `validation.js`)
+- *.test.js alongside source files (`validation.test.js` next to `validation.js`)
+- lowercase for config files (`vitest.config.js`, `package.json`)
 
 **Functions:**
-- camelCase for all functions: `analyzeArticle()`, `calculateHash()`, `getDominantColor()`
+- camelCase for all functions (`validateAnalyzeRequest`, `sanitizeString`, `calculateHash`)
 - No special prefix for async functions
-- Descriptive names: `handleTextSelection()`, `createPersistentTooltip()`
+- Descriptive action verbs (`findSimilarArticles`, `lookupDictionary`, `generateEmbedding`)
 
 **Variables:**
-- camelCase for variables: `currentAnalysis`, `menuExpanded`, `selectionModeActive`
-- SCREAMING_SNAKE_CASE for constants: `BACKEND_URL`, `USER_ID`, `PORT`
+- camelCase for variables (`textHash`, `sampled`, `embedding`)
+- UPPER_SNAKE_CASE for constants (`SUPPORTED_LANGUAGES`, `MAX_TEXT_LENGTH`, `RATE_LIMIT_WINDOW_MS`)
 - No underscore prefix for private members
 
-**Database:**
-- snake_case for table names: `deck_cards`, `usage_log`, `vocabulary_cache`
-- snake_case for column names: `text_hash`, `cefr_level`, `word_count`
+**Types:**
+- No TypeScript - plain JavaScript throughout
+- JSDoc comments for type documentation
 
 ## Code Style
 
 **Formatting:**
-- 2-space indentation (consistent throughout)
-- No Prettier or formatter configured
-- Line length varies (no strict limit)
-
-**Quotes:**
-- Single quotes for strings: `'API_REQUEST'`, `'http://localhost:3000'`
-- Template literals with backticks for interpolation and SQL
-- Double quotes in HTML attributes within strings
-
-**Semicolons:**
-- Required and used consistently
+- No Prettier config - manual formatting
+- 2 space indentation throughout
+- ~100 character line length (soft limit)
+- Semicolons required and used consistently
+- Single quotes in ES modules (extension), double quotes in CommonJS (backend)
 
 **Linting:**
-- No ESLint or linting tools configured
-- Manual code review for style consistency
+- No ESLint config - manual code review
+- No automated formatting on save
 
 ## Import Organization
 
-**Order:**
-1. Node.js built-ins: `require('crypto')`
-2. External packages: `require('express')`, `require('cors')`
-3. No internal modules (monolithic structure)
+**Order (Backend - CommonJS):**
+1. Node.js built-ins (`const fs = require('fs')`)
+2. External packages (`const express = require('express')`)
+3. Local modules (`const { calculateHash } = require('./services/claude')`)
+
+**Order (Extension - ES Modules):**
+1. Local module imports (`import { SUPPORTED_LANGUAGES } from './utils.js'`)
+2. No external package imports (extension bundles dependencies)
 
 **Grouping:**
-- Imports grouped at file top
 - No blank lines between import groups
+- Alphabetical ordering not enforced
 
 **Path Aliases:**
-- Not used (no build step)
+- None defined - relative paths used throughout
 
 ## Error Handling
 
 **Patterns:**
-- Try-catch blocks at route handler level
-- HTTP status codes: 400 (bad request), 404 (not found), 500 (server error)
-- JSON error responses with `error` and `message` fields
+- try-catch at route handler level
+- Services throw errors with descriptive messages
+- Errors caught, logged to console, return JSON error response
+- Graceful degradation for non-critical failures (caching, embeddings)
 
 **Error Types:**
-- Throw on invalid input, missing dependencies
-- Log with console.error before returning error response
-- Graceful fallbacks when optional services unavailable
+- Throw on invalid input, API failures, database errors
+- Return null/empty array for expected "not found" cases
+- Console.error with emoji prefix for visibility (`❌ Error:`)
+
+**Error Response Format:**
+```javascript
+res.status(500).json({ error: 'Description', message: error.message });
+```
 
 ## Logging
 
 **Framework:**
-- console.log, console.error (no logging library)
+- Console.log/error (no external logging library)
+- Emoji prefixes for visual scanning:
+  - `✅` Success
+  - `❌` Error
+  - `📥` Request received
+  - `💾` Cache operation
+  - `🔮` Embedding operation
 
 **Patterns:**
-- Emoji prefixes for visual clarity: `✅`, `❌`, `💾`, `🤖`, `📥`
-- Descriptive log messages with context
-- Request details logged on each endpoint
+- Log at route boundaries (request in, response out)
+- Log cache hits/misses
+- Log external API calls
+- No verbose logging in utility functions
 
-**Example:**
-```javascript
-console.log('📥 POST /analyze');
-console.log(`Text length: ${text.length} characters`);
-console.error('❌ Error generating questions:', error);
-```
+**Where:**
+- Route handlers: entry/exit logging
+- Services: operation-level logging
+- Middleware: error logging only
 
 ## Comments
 
 **When to Comment:**
-- Section headers with `========` dividers
-- Explain business logic and algorithms
-- Document non-obvious thresholds and magic numbers
+- Explain business logic and caching strategies
+- Document function parameters and return types (JSDoc)
+- Mark section boundaries with visual dividers
 
-**Section Headers:**
+**JSDoc/TSDoc:**
+- Required for all exported functions
+- Format:
+```javascript
+/**
+ * Brief description
+ * @param {string} paramName - Description
+ * @returns {Promise<Object>} Description
+ */
+```
+
+**Section Markers:**
 ```javascript
 // ========================================
-// COLOR DETECTION
-// ========================================
-
-// ========================================
-// ENDPOINT: Health Check
+// ENDPOINT: Analyze Text
 // ========================================
 ```
 
-**JSDoc/TSDoc:**
-- Not used (no TypeScript)
-- Inline comments for complex logic
-
 **TODO Comments:**
 - Format: `// TODO: description`
-- Minimal TODOs in codebase
+- No username or issue linking convention
 
 ## Function Design
 
 **Size:**
-- Large functions present (content.js has functions > 100 lines)
-- Consider extraction for better maintainability
+- No enforced limit, but functions generally under 50 lines
+- Complex logic extracted to helper functions
 
 **Parameters:**
-- Object destructuring for multiple parameters
-- Default values: `options = {}`
+- Typically 2-4 parameters
+- Options object pattern not commonly used
+- Destructuring in function body, not parameter list
 
 **Return Values:**
 - Explicit return statements
-- JSON responses for API endpoints
-- Promise-based async operations
+- Return early for validation failures
+- Return null for "not found" cases
 
 ## Module Design
 
-**Exports:**
-- No ES6 modules (CommonJS in backend)
-- No exports in extension (global scope)
+**Exports (Backend - CommonJS):**
+```javascript
+module.exports = { functionA, functionB, init };
+```
 
-**File Organization:**
-- Monolithic files (server.js: 1237 lines, content.js: 1813 lines)
-- Functions grouped by feature within files
-- Section headers for navigation
+**Exports (Extension - ES Modules):**
+```javascript
+export function functionA() { }
+export async function functionB() { }
+```
+
+**Dependency Injection:**
+- Routes and services use `init(deps)` pattern
+- Dependencies stored in module-level variables
+```javascript
+let pool = null;
+let services = null;
+
+function init(deps) {
+  pool = deps.pool;
+  services = deps.services;
+}
+```
+
+**Barrel Files:**
+- Not used - direct imports to specific files
 
 ---
 
-*Convention analysis: 2026-01-14*
+*Convention analysis: 2026-01-15*
 *Update when patterns change*

@@ -1,118 +1,120 @@
 # External Integrations
 
-**Analysis Date:** 2026-01-14
+**Analysis Date:** 2026-01-15
 
 ## APIs & External Services
 
-**AI/LLM - Anthropic Claude API:**
-- Service: Language model for CEFR analysis, definitions, and question generation
-- Model: claude-haiku-4-5-20251001 (cost-optimized)
-- SDK/Client: REST API via native fetch
-- Auth: API key in `CLAUDE_API_KEY` env var
-- Endpoints used:
-  - `https://api.anthropic.com/v1/messages`
-- Implementation files:
-  - `translation-backend/server.js` lines 278-299 (CEFR analysis)
-  - `translation-backend/server.js` lines 450-466 (contextual definitions)
-  - `translation-backend/server.js` lines 984-998 (question generation)
-- Cost tracking: Token usage logged with cost calculation
-
-**Email/SMS:**
-- Not integrated
+**AI/LLM Provider:**
+- Anthropic Claude API - CEFR analysis, word definitions, comprehension questions
+  - SDK/Client: Native fetch to `https://api.anthropic.com/v1/messages`
+  - Auth: `CLAUDE_API_KEY` environment variable
+  - Model: `claude-haiku-4-5-20251001`
+  - Endpoints used: Messages API (POST /v1/messages)
+  - Files: `translation-backend/services/claude.js`, `translation-backend/routes/analyze.js`, `translation-backend/routes/define.js`, `translation-backend/routes/questions.js`
 
 **Payment Processing:**
-- Not integrated
+- Not detected
+
+**Email/SMS:**
+- Not detected
+
+**External APIs:**
+- None besides Anthropic Claude API
 
 ## Data Storage
 
 **Databases:**
-- PostgreSQL 16 with pgvector extension
-- Connection: via `DB_*` env vars (host, port, name, user, password)
-- Client: pg 8.11.3 (`translation-backend/package.json`)
-- Migrations: `translation-backend/init.sql`
-- Docker image: `pgvector/pgvector:pg16`
-
-**Database Tables:**
-- `analyses` - CEFR analysis cache (hash-based)
-- `article_embeddings` - Vector embeddings (768-dim) for semantic similarity
-- `vocabulary_cache` - Word definition cache
-- `deck_cards` - User vocabulary flashcards
-- `deck_stats` - User statistics
-- `french_dictionary` - 5k frequency words
-- `learned_dictionary` - AI-learned words
-- `comprehension_questions` - DELF/DALF practice questions
-- `comprehension_deck` - User-saved question sets
-- `usage_log` - API usage analytics
+- PostgreSQL 16 with pgvector extension - Primary data store
+  - Connection: `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` env vars
+  - Client: `pg` package (node-postgres) v8.11.3
+  - Pool: `translation-backend/services/database.js`
+  - Schema: `translation-backend/init.sql`
+  - Migrations: `translation-backend/dictionary_migration.sql`
+  - Tables:
+    - `analyses` - CEFR analysis cache (hash-based)
+    - `article_embeddings` - Vector embeddings for similarity (768-dim)
+    - `deck_cards` - User vocabulary cards
+    - `deck_stats` - User statistics
+    - `vocabulary_cache` - Word definition cache
+    - `learned_dictionary` - AI-learned words
+    - `french_dictionary` - Frequency word list (5000 words)
+    - `comprehension_questions` - Generated exam questions
+    - `comprehension_deck` - User's saved question sets
+    - `usage_log` - Analytics tracking
 
 **File Storage:**
-- Not integrated (no cloud storage)
+- Local filesystem only (no cloud storage)
+- Extension uses Chrome storage API (`chrome.storage.sync`)
 
 **Caching:**
 - PostgreSQL-based caching (no Redis)
-- Three-tier strategy: hash → embedding similarity → API
-
-## Local ML/Embeddings
-
-**Xenova Transformers:**
-- Service: Local embedding generation (FREE)
-- Model: multilingual-e5-base (quantized)
-- SDK/Client: @xenova/transformers 2.17.2
-- Implementation: `translation-backend/server.js` lines 58-73
-- Purpose: Generate 768-dim vectors for semantic similarity search
-
-**Optional - Voyage AI:**
-- Service: External embeddings API (not used by default)
-- Auth: `VOYAGE_API_KEY` env var
-- Status: Commented out in `.env.example`
+- In-memory caching via module-level variables
+- Browser localStorage for extension preferences
 
 ## Authentication & Identity
 
 **Auth Provider:**
-- None - Uses localStorage browser fingerprinting for user ID
-- Implementation: `extension/content.js` line 167
-- Pattern: `localStorage.getItem('readandlearn_user_id')`
+- No user authentication (anonymous extension users)
+- API key validation for backend access only
+
+**Backend API Key:**
+- `CLAUDE_API_KEY` validated at startup and per-request
+- Middleware: `translation-backend/middleware/apiKey.js`
+- Validates against Anthropic API before accepting requests
 
 **OAuth Integrations:**
-- Not integrated
+- Not detected
 
 ## Monitoring & Observability
 
 **Error Tracking:**
-- None - Console logging only
+- Console logging only
+- No external error tracking (Sentry, etc.)
 
 **Analytics:**
-- Internal `usage_log` table
+- Built-in usage tracking via `usage_log` table
 - Tracks: action, language, cache_hit, tokens_used, cost_usd
-- Implementation: `translation-backend/server.js` lines 150-161
+- Feature flag: `ENABLE_ANALYTICS` environment variable
+- File: `translation-backend/services/database.js` (logUsage function)
 
 **Logs:**
-- Console output only (stdout/stderr)
-- 126 console.log statements across codebase
+- stdout/stderr only
+- No external logging service
 
 ## CI/CD & Deployment
 
 **Hosting:**
-- Docker container (backend)
-- Chrome Web Store (extension)
-- Deployment: Manual via Docker Compose
+- Docker container-based deployment
+- Deployment platforms configured:
+  - Railway.app (`translation-backend/railway.json`)
+  - Render.com (`translation-backend/render.yaml`)
+  - Any Docker host
 
 **CI Pipeline:**
-- Not configured
+- Not detected (no .github/workflows/)
+- Tests run manually via `npm test`
+
+**Container:**
+- Dockerfile: `translation-backend/Dockerfile` (Node.js 20 Alpine)
+- Docker Compose: `translation-backend/docker-compose.yml`
+- Images: `pgvector/pgvector:pg16` for PostgreSQL
 
 ## Environment Configuration
 
 **Development:**
-- Required env vars: `CLAUDE_API_KEY`, `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`
-- Secrets location: `.env` file (gitignored)
-- Template: `translation-backend/.env.example`
-- Local database: Docker PostgreSQL
+- Required env vars:
+  - `CLAUDE_API_KEY` (required)
+  - `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` (if using DB)
+- Secrets location: `.env` file (gitignored - use `.env.example` as template)
+- Mock/stub services: None - uses real Anthropic API in dev
 
 **Staging:**
-- Not configured
+- Not detected (single environment configuration)
 
 **Production:**
-- Secrets: Environment variables
-- Database: PostgreSQL with pgvector
+- Secrets management: Environment variables via deployment platform
+- Railway/Render both support environment variable configuration
+- No separate staging environment
 
 ## Webhooks & Callbacks
 
@@ -122,24 +124,72 @@
 **Outgoing:**
 - None
 
-## External Resources
+## ML/AI Services
 
-**Google Fonts:**
-- Service: Web typography
-- Resource: Cinzel font (weight 900)
-- URL: `https://fonts.googleapis.com/css2?family=Cinzel:wght@900&display=swap`
-- Implementation: `extension/content.js` line 92
+**Local Embeddings:**
+- Xenova Transformers.js - Local ML embeddings generation
+  - Model: `Xenova/multilingual-e5-base`
+  - Dimensions: 768
+  - Cost: FREE (runs locally)
+  - File: `translation-backend/services/embeddings.js`
+  - Usage: Article similarity matching, semantic caching
 
-## Integration Summary
+**Vector Database:**
+- pgvector extension for PostgreSQL
+  - HNSW index for fast similarity search
+  - Cosine similarity metric
+  - 768-dimensional vectors
+  - Table: `article_embeddings`
 
-| Service | Type | Auth Method | Used For |
-|---------|------|-------------|----------|
-| Claude API | REST API | API Key | CEFR analysis, definitions, questions |
-| PostgreSQL | Database | Connection string | All persistent data |
-| Xenova | Local library | None | Embedding generation |
-| Google Fonts | CDN | None | UI typography |
+## Browser/Extension APIs
+
+**Chrome Extension APIs:**
+- `chrome.runtime.sendMessage` - IPC between content and background
+- `chrome.runtime.onMessage` - Message listener in background
+- `chrome.storage.sync` - User preferences storage
+- `chrome.action.onClicked` - Extension icon click handler
+- `chrome.scripting.executeScript` - Dynamic script injection
+- `chrome.i18n.detectLanguage` - Language detection
+- Permissions: `activeTab`, `scripting`, `storage`
+
+## Integration Architecture
+
+```
+Chrome Extension                Backend (Express)
+      │                              │
+      ├─ content.js                  ├─ /analyze
+      │   │                          │   └─ Claude API
+      │   └─ modules/api.js ────────►│   └─ PostgreSQL cache
+      │                              │   └─ pgvector similarity
+      │                              │
+      ├─ background.js (IPC)         ├─ /define
+      │                              │   └─ French dictionary
+      │                              │   └─ Claude API (fallback)
+      │                              │
+      └─ chrome.storage              ├─ /deck/*
+                                     │   └─ PostgreSQL (deck_cards)
+                                     │
+                                     └─ /questions/generate
+                                         └─ Claude API
+```
+
+## Cost Considerations
+
+**Anthropic Claude API:**
+- Model: claude-haiku-4-5-20251001
+- Input: $0.80 per million tokens
+- Output: $4.00 per million tokens
+- Caching reduces costs significantly (3-tier strategy)
+
+**Database:**
+- PostgreSQL - Self-hosted or platform-provided
+- Railway/Render include free tier PostgreSQL
+
+**Embeddings:**
+- Local generation - FREE (Xenova Transformers)
+- No external embedding API costs
 
 ---
 
-*Integration audit: 2026-01-14*
+*Integration audit: 2026-01-15*
 *Update when adding/removing external services*
